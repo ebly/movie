@@ -1,0 +1,53 @@
+# 映途 — Cloudflare Workers 部署配置
+# 需要 wrangler 4 + Node >= 20（wrangler 3 的 beta 静态资源在本地开发不解析子目录页面）
+# 本地开发：npm run dev:worker（配合 npm run db:migrate / db:seed 使用本地 D1）
+# 上线：wrangler d1 create yingtu-db 后把 database_id 换成真实 ID，再 npm run deploy
+
+name = "yingtu"
+main = "worker/index.js"
+compatibility_date = "2024-12-01"
+
+# 前台为原生 HTML/CSS/JS，通过 ASSETS 绑定托管。
+# run_worker_first 用「路由白名单」而不是 true：
+#   - 只有页面外壳、API、跳转、后台这些需要注入 meta / 鉴权的请求才进入 Worker，计入 10 万次/天免费额度；
+#   - styles.css、app.js、图片、字体等静态文件由静态资源层直接返回，不消耗 Worker 请求数。
+# 新增前台页面路由时记得同步这里，否则会拿到未注入 meta 的原始 index.html。
+[assets]
+directory = "./client"
+binding = "ASSETS"
+run_worker_first = [
+  "/",
+  "/index.html",
+  "/search",
+  "/search/",
+  "/list",
+  "/list/",
+  "/title/*",
+  "/sitemap.xml",
+  "/robots.txt",
+  "/api/*",
+  "/go/*",
+  "/admin",
+  "/admin/*"
+]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "yingtu-db"
+# ⚠️ 占位符，必须替换成 `npx wrangler d1 create yingtu-db` 输出的真实 database_id，否则 deploy 会报错。
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "worker/migrations"
+
+# 日志：免费额度内含 Workers Logs，用于排查 5xx。
+[observability]
+enabled = true
+
+[vars]
+# TMDB 接口地址；本地网络需要镜像/代理时改成自己的转发地址，留空则用官方 https://api.themoviedb.org/3
+TMDB_BASE = ""
+
+# 部署前请在 Cloudflare 控制台或 wrangler secret 设置：
+#   ADMIN_PASSWORD —— 管理后台密码（不设则回退 config/brand.json 里的演示默认密码，公网部署必须改）
+#   ADMIN_SECRET   —— 会话签名密钥（不设则由 ADMIN_PASSWORD 派生；建议单独用 32+ 位随机串）
+#   TMDB_API_KEY   —— 可选，后台 TMDB 导入用；也可由后台页面临时填自己的 Key
+# 品牌文案的唯一来源是仓库根目录 config/brand.json（会随 Worker 一起打包），这里不再重复定义站点名。

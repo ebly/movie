@@ -1,0 +1,14 @@
+node_modules/
+data/titles.json
+data/titles.json.*.tmp
+data/titles.json.broken-*.json
+data/analytics.ndjson
+data/feedback.ndjson
+*.log
+.DS_Store
+.env
+.verify/
+.verify-*
+.wrangler/
+.wr4/
+worker/seed.sql

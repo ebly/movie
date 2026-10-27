@@ -1,0 +1,718 @@
+// index.js — Worker fetch 入口与路由表：公开 API、管理 API、/go 跳转记录、静态资源（env.ASSETS），
+// 全部响应结构 / 字段名 / 状态码对齐 server/ 下的 Node 版（api.js、admin.js、go.js、app.js、lib/http.js、lib/static.js）。
+
+import { BRAND, PROVIDERS, TYPES, DISCLAIMER } from "./config.js";
+import {
+  HttpError,
+  createStore,
+  loadCatalog,
+  validateTitle,
+  TIERS,
+  QUALITIES,
+  MOTIFS,
+  ART_PRESETS,
+  DEFAULT_ART
+} from "./store.js";
+import { createAnalytics } from "./analytics.js";
+import { createFeedbackStore, createRateLimiter, cleanText } from "./feedback.js";
+import { createAdminAuth, parseCookies, secureFlag } from "./adminAuth.js";
+import meta from "../shared/meta.js";
+import tmdb from "../shared/tmdb.js";
+
+// Workers 没有 process.uptime()，用 isolate 启动时刻近似（health 的 uptime 字段）。
+const BOOT_TIME = Date.now();
+
+/**
+ * 目录缓存：D1 免费额度按「读取行数」计量，而每个请求载入整份目录等于
+ * 每次两条全表扫描。这里在 isolate 内缓存 20 秒，读取量降到原来的几十分之一。
+ * 后台写入后主动失效，保证编辑立即生效。
+ */
+const CATALOG_TTL_MS = 20_000;
+let catalogCache = null;
+
+async function getCatalog(env) {
+  const now = Date.now();
+  if (catalogCache && now - catalogCache.at < CATALOG_TTL_MS) return catalogCache.catalog;
+  const catalog = await loadCatalog(env.DB);
+  catalogCache = { catalog, at: now };
+  return catalog;
+}
+
+function invalidateCatalog() {
+  catalogCache = null;
+}
+
+const API_INDEX = {
+  name: `${BRAND.name} API`,
+  brand: BRAND,
+  version: "1.0.0",
+  endpoints: [
+    { method: "GET", path: "/api/health", description: "健康检查" },
+    { method: "GET", path: "/api/bootstrap", description: "平台列表、热门作品、统计与免责声明" },
+    { method: "GET", path: "/api/search?q=&type=&limit=", description: "搜索作品（服务端排序与候选匹配）" },
+    { method: "GET", path: "/api/titles", description: "作品列表（等价于空关键词搜索）" },
+    { method: "GET", path: "/api/titles/:id", description: "作品详情与相似作品" },
+    { method: "GET", path: "/api/titles/:id/offers?season=&region=&tier=&quality=&verified=1", description: "筛选观看渠道" },
+    { method: "POST", path: "/api/feedback", description: "提交反馈（JSON，60 秒内最多 5 次）" }
+  ],
+  disclaimer: DISCLAIMER
+};
+
+const SECURITY_HEADERS = {
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+  "Cross-Origin-Opener-Policy": "same-origin"
+};
+
+// CSP 与 server/lib/http.js 完全一致。
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src https://fonts.gstatic.com",
+  // 放开 https: 是因为后台可以给作品填外部海报图片地址（titles.poster）
+  "img-src 'self' data: https:",
+  "connect-src 'self'",
+  "base-uri 'none'",
+  "form-action 'self'",
+  "frame-ancestors 'none'"
+].join("; ");
+
+// 限流是 isolate 内存级近似：Map 只在单个 Worker 实例内共享，实例扩容/回收会重置计数（见 feedback.js 注释）。
+const allowFeedback = createRateLimiter({ windowMs: 60_000, max: 5 });
+const allowLogin = createRateLimiter({ windowMs: 10 * 60_000, max: 8 });
+const allowGo = createRateLimiter({ windowMs: 60_000, max: 60 });
+
+const VISITOR_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/* ---------------- 响应助手（对齐 server/lib/http.js） ---------------- */
+
+function buildHeaders(ctx, status, headersInit) {
+  const headers = new Headers(headersInit);
+  Object.entries(SECURITY_HEADERS).forEach(([key, value]) => headers.set(key, value));
+  (ctx && ctx.cookies ? ctx.cookies : []).forEach((cookie) => headers.append("Set-Cookie", cookie));
+  return headers;
+}
+
+function sendJSON(ctx, status, payload, extraHeaders = {}) {
+  const headers = buildHeaders(ctx, status, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store",
+    ...extraHeaders
+  });
+  return new Response(JSON.stringify(payload), { status, headers });
+}
+
+function sendError(ctx, status, code, message, extraHeaders = {}) {
+  return sendJSON(ctx, status, { error: { code, message } }, extraHeaders);
+}
+
+function sendText(ctx, status, body, extraHeaders = {}) {
+  const headers = buildHeaders(ctx, status, {
+    "Content-Type": "text/plain; charset=utf-8",
+    "Cache-Control": "no-store",
+    ...extraHeaders
+  });
+  return new Response(body, { status, headers });
+}
+
+function methodNotAllowed(ctx, allow) {
+  return sendError(ctx, 405, "method_not_allowed", "不支持的请求方法", { Allow: allow });
+}
+
+async function readJSON(request, { limit = 16 * 1024 } = {}) {
+  const type = String(request.headers.get("content-type") || "");
+  if (!/^application\/json\b/i.test(type)) {
+    throw new HttpError(415, "unsupported_media_type", "请求需使用 application/json");
+  }
+  const buffer = await request.arrayBuffer();
+  if (buffer.byteLength > limit) {
+    throw new HttpError(413, "payload_too_large", "请求内容过大");
+  }
+  if (!buffer.byteLength) throw new HttpError(400, "invalid_json", "请求体不能为空");
+  try {
+    return JSON.parse(new TextDecoder().decode(buffer));
+  } catch (err) {
+    throw new HttpError(400, "invalid_json", "请求体不是合法 JSON");
+  }
+}
+
+function clientKey(request) {
+  const cf = String(request.headers.get("cf-connecting-ip") || "").trim();
+  if (cf) return cf;
+  const forwarded = String(request.headers.get("x-forwarded-for") || "").split(",")[0].trim();
+  return forwarded || "unknown";
+}
+
+/** Stable anonymous id for behavior stats. No IP or user agent is stored. */
+function visitorId(ctx) {
+  const cookies = parseCookies(ctx.request);
+  let id = cookies[BRAND.cookies.visitor];
+  if (!id || !VISITOR_RE.test(id)) {
+    id = crypto.randomUUID();
+    ctx.cookies.push(`${BRAND.cookies.visitor}=${id}; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax${secureFlag(ctx.request)}`);
+  }
+  return id;
+}
+
+function sameOrigin(request, url) {
+  const origin = request.headers.get("origin");
+  if (!origin) return true;
+  try {
+    return new URL(origin).host === url.host;
+  } catch (err) {
+    return false;
+  }
+}
+
+/**
+ * 统计写入不阻塞响应：交给 waitUntil 在响应返回后执行，
+ * 既省掉一次 D1 写延迟，也避免用户等待埋点。
+ */
+function record(execution, promise) {
+  const task = Promise.resolve(promise).catch((err) => {
+    console.warn(`${BRAND.logPrefix} 统计记录失败`, err.message);
+  });
+  if (execution && typeof execution.waitUntil === "function") execution.waitUntil(task);
+  return task;
+}
+
+/** 每个请求准备一次 D1 数据层（目录一次性载入内存，供打分/筛选/related 复用）。 */
+async function prepare(ctx) {
+  const catalog = await getCatalog(ctx.env);
+  ctx.store = createStore({ db: ctx.env.DB, providers: PROVIDERS, catalog });
+  ctx.analytics = createAnalytics({ db: ctx.env.DB, providers: PROVIDERS });
+  ctx.feedback = createFeedbackStore({ db: ctx.env.DB });
+  ctx.auth = createAdminAuth({ env: ctx.env });
+}
+
+/* ---------------- 公开 API（对齐 server/api.js） ---------------- */
+
+async function handleApi(ctx) {
+  const { url, request, store, analytics, feedback } = ctx;
+  const path = url.pathname;
+  const method = request.method;
+
+  if (path === "/api" || path === "/api/") {
+    if (method !== "GET") return methodNotAllowed(ctx, "GET");
+    return sendJSON(ctx, 200, API_INDEX);
+  }
+
+  if (path === "/api/health") {
+    if (method !== "GET") return methodNotAllowed(ctx, "GET");
+    return sendJSON(ctx, 200, {
+      ok: true,
+      name: BRAND.apiName,
+      version: API_INDEX.version,
+      uptime: Math.round((Date.now() - BOOT_TIME) / 1000)
+    });
+  }
+
+  if (path === "/api/bootstrap") {
+    if (method !== "GET") return methodNotAllowed(ctx, "GET");
+    return sendJSON(ctx, 200, {
+      brand: BRAND,
+      providers: store.providers,
+      hot: store.hot(),
+      types: store.types,
+      stats: store.stats,
+      disclaimer: DISCLAIMER
+    });
+  }
+
+  if (path === "/api/search" || path === "/api/titles") {
+    if (method !== "GET") return methodNotAllowed(ctx, "GET");
+    const started = Date.now();
+    const query = path === "/api/titles" ? "" : url.searchParams.get("q") || "";
+    const data = store.search({
+      q: query,
+      type: url.searchParams.get("type") || "全部",
+      limit: url.searchParams.get("limit") || undefined
+    });
+    data.tookMs = Date.now() - started;
+    if (analytics && data.query) {
+      const visitor = visitorId(ctx);
+      record(ctx.execution, analytics.recordSearch({
+        query: data.query,
+        type: data.type,
+        total: data.total,
+        tookMs: data.tookMs,
+        visitorId: visitor
+      }));
+    }
+    return sendJSON(ctx, 200, data);
+  }
+
+  const titleMatch = /^\/api\/titles\/([^/]+)(\/offers)?\/?$/.exec(path);
+  if (titleMatch) {
+    if (method !== "GET") return methodNotAllowed(ctx, "GET");
+    let id;
+    try {
+      id = decodeURIComponent(titleMatch[1]);
+    } catch (err) {
+      return sendError(ctx, 400, "invalid_id", "作品编号不合法");
+    }
+
+    if (titleMatch[2]) {
+      const data = store.filterOffers(id, {
+        season: url.searchParams.get("season") || "全部",
+        region: url.searchParams.get("region") || "全部",
+        tier: url.searchParams.get("tier") || "全部",
+        quality: url.searchParams.get("quality") || "全部",
+        verified: url.searchParams.get("verified") || undefined
+      });
+      if (!data) return sendError(ctx, 404, "title_not_found", "没有找到这部作品");
+      return sendJSON(ctx, 200, data);
+    }
+
+    const data = store.getTitle(id);
+    if (!data) return sendError(ctx, 404, "title_not_found", "没有找到这部作品");
+    if (analytics) {
+      const visitor = visitorId(ctx);
+      record(ctx.execution, analytics.recordView({
+        titleId: data.item.id,
+        title: data.item.title,
+        visitorId: visitor
+      }));
+    }
+    return sendJSON(ctx, 200, data);
+  }
+
+  if (path === "/api/feedback") {
+    if (method !== "POST") return methodNotAllowed(ctx, "POST");
+    if (!allowFeedback(clientKey(request))) {
+      return sendError(ctx, 429, "rate_limited", "提交太频繁了，请稍后再试", {
+        "Retry-After": "60"
+      });
+    }
+
+    const body = await readJSON(request, { limit: 4 * 1024 });
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      throw new HttpError(422, "invalid_body", "请求体格式不正确");
+    }
+    // 蜜罐字段：机器人填了 website 就假装成功，不落库。
+    if (cleanText(body.website, 40)) {
+      return sendJSON(ctx, 201, { ok: true });
+    }
+
+    const message = cleanText(body.message, 600);
+    const contact = cleanText(body.contact, 120);
+    if (message.length < 2) {
+      throw new HttpError(422, "invalid_message", "反馈至少需要 2 个字");
+    }
+
+    const entry = await feedback.add({ message, contact });
+    return sendJSON(ctx, 201, { ok: true, id: entry.id });
+  }
+
+  return sendError(ctx, 404, "not_found", "接口不存在");
+}
+
+/* ---------------- 管理 API（对齐 server/admin.js） ---------------- */
+
+function adminSummary(item) {
+  const verifiedCount = item.offers.filter((offerItem) => offerItem.verified).length;
+  return {
+    id: item.id,
+    title: item.title,
+    original: item.original,
+    year: item.year,
+    type: item.type,
+    rating: item.rating,
+    seasons: item.seasons,
+    runtime: item.runtime,
+    genres: item.genres || [],
+    hot: Boolean(item.hot),
+    poster: item.poster || null,
+    art: item.art,
+    offerCount: item.offers.length,
+    verifiedCount,
+    createdAt: item.createdAt || null,
+    updatedAt: item.updatedAt || null
+  };
+}
+
+async function handleAdmin(ctx) {
+  const { url, request, store, analytics, feedback, auth } = ctx;
+  const path = url.pathname.replace(/\/+$/, "") || "/api/admin";
+  const method = request.method;
+  const titlePattern = /^\/api\/admin\/titles\/([^/]+)$/;
+
+  if (method !== "GET" && method !== "HEAD" && !sameOrigin(request, url)) {
+    return sendError(ctx, 403, "bad_origin", "请求来源不合法");
+  }
+
+  if (path === "/api/admin/session") {
+    if (method !== "GET") return methodNotAllowed(ctx, "GET");
+    const session = await auth.authenticate(request);
+    return sendJSON(ctx, 200, {
+      authenticated: Boolean(session),
+      usingDefaultPassword: auth.usingDefaultPassword,
+      expiresAt: session ? new Date(session.expiresAt).toISOString() : null
+    });
+  }
+
+  if (path === "/api/admin/login") {
+    if (method !== "POST") return methodNotAllowed(ctx, "POST");
+    if (!allowLogin(clientKey(request))) {
+      return sendError(ctx, 429, "rate_limited", "尝试太频繁了，请稍后再试", {
+        "Retry-After": "600"
+      });
+    }
+    const body = await readJSON(request, { limit: 2 * 1024 });
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      throw new HttpError(422, "invalid_body", "请求体格式不正确");
+    }
+    if (!(await auth.checkPassword(cleanText(body.password, 200)))) {
+      return sendError(ctx, 401, "invalid_password", "密码不正确");
+    }
+    const session = await auth.issue(request, ctx.cookies);
+    return sendJSON(ctx, 200, {
+      ok: true,
+      expiresAt: new Date(session.expiresAt).toISOString()
+    });
+  }
+
+  if (path === "/api/admin/logout") {
+    if (method !== "POST") return methodNotAllowed(ctx, "POST");
+    auth.destroy(request, ctx.cookies);
+    return sendJSON(ctx, 200, { ok: true });
+  }
+
+  if (!(await auth.authenticate(request))) {
+    return sendError(ctx, 401, "unauthorized", "请先登录管理后台");
+  }
+
+  if (path === "/api/admin/meta") {
+    if (method !== "GET") return methodNotAllowed(ctx, "GET");
+    return sendJSON(ctx, 200, {
+      providers: Object.entries(PROVIDERS).map(([id, provider]) => ({
+        id,
+        name: provider.name,
+        short: provider.short,
+        region: provider.region,
+        color: provider.color,
+        fg: provider.fg
+      })),
+      types: TYPES,
+      tiers: TIERS,
+      qualities: QUALITIES,
+      motifs: MOTIFS,
+      artPresets: ART_PRESETS,
+      defaultArt: DEFAULT_ART
+    });
+  }
+
+  if (path === "/api/admin/feedback") {
+    if (method !== "GET") return methodNotAllowed(ctx, "GET");
+    const data = await feedback.list({
+      q: cleanText(url.searchParams.get("q"), 60),
+      limit: Number(url.searchParams.get("limit") || 20),
+      offset: Number(url.searchParams.get("offset") || 0)
+    });
+    return sendJSON(ctx, 200, data);
+  }
+
+  if (path === "/api/admin/tmdb/search") {
+    if (method !== "GET") return methodNotAllowed(ctx, "GET");
+    const query = cleanText(url.searchParams.get("q"), 80);
+    const key = cleanText(request.headers.get("x-tmdb-key"), 300) || ctx.env.TMDB_API_KEY || "";
+    try {
+      const results = await tmdb.search(query, { key, baseUrl: ctx.env.TMDB_BASE || "" });
+      return sendJSON(ctx, 200, { ok: true, results });
+    } catch (err) {
+      if (err instanceof tmdb.TmdbError) {
+        const status = err.code === "empty_query" ? 422
+          : err.code === "missing_key" ? 400
+          : err.code === "invalid_key" ? 401
+          : err.code === "rate_limited" ? 429
+          : 502;
+        return sendError(ctx, status, err.code, err.message);
+      }
+      throw err;
+    }
+  }
+
+  if (path === "/api/admin/titles") {
+    if (method === "GET") {
+      const q = cleanText(url.searchParams.get("q"), 60).toLowerCase();
+      const type = url.searchParams.get("type") || "";
+      const onlyHot = url.searchParams.get("hot") === "1";
+      const rows = store.all()
+        .map((item, index) => ({ item, index }))
+        .filter(({ item }) => {
+          if (type && item.type !== type) return false;
+          if (onlyHot && !item.hot) return false;
+          if (!q) return true;
+          const haystack = [item.id, item.title, item.original, ...(item.aliases || [])]
+            .join(" ")
+            .toLowerCase();
+          return haystack.includes(q);
+        })
+        .sort((a, b) => {
+          const left = Date.parse(b.item.updatedAt || 0) || 0;
+          const right = Date.parse(a.item.updatedAt || 0) || 0;
+          return left - right || a.index - b.index;
+        })
+        .map(({ item }) => adminSummary(item));
+      return sendJSON(ctx, 200, { total: rows.length, items: rows });
+    }
+
+    if (method === "POST") {
+      const body = await readJSON(request, { limit: 256 * 1024 });
+      const input = validateTitle(body, { providers: PROVIDERS });
+      const item = await store.createTitle(input);
+      invalidateCatalog();
+      return sendJSON(ctx, 201, { ok: true, item });
+    }
+
+    return methodNotAllowed(ctx, "GET, POST");
+  }
+
+  const match = titlePattern.exec(path);
+  if (match) {
+    let id;
+    try {
+      id = decodeURIComponent(match[1]);
+    } catch (err) {
+      throw new HttpError(400, "invalid_id", "作品编号不合法");
+    }
+
+    if (method === "GET") {
+      const item = store.get(id);
+      if (!item) return sendError(ctx, 404, "title_not_found", "没有找到这部作品");
+      return sendJSON(ctx, 200, { item });
+    }
+
+    if (method === "PUT") {
+      const body = await readJSON(request, { limit: 256 * 1024 });
+      const input = validateTitle(body, { providers: PROVIDERS });
+      const item = await store.updateTitle(id, input);
+      if (!item) return sendError(ctx, 404, "title_not_found", "没有找到这部作品");
+      invalidateCatalog();
+      return sendJSON(ctx, 200, { ok: true, item });
+    }
+
+    if (method === "DELETE") {
+      const item = await store.removeTitle(id);
+      if (!item) return sendError(ctx, 404, "title_not_found", "没有找到这部作品");
+      invalidateCatalog();
+      return sendJSON(ctx, 200, { ok: true, id });
+    }
+
+    return methodNotAllowed(ctx, "GET, PUT, DELETE");
+  }
+
+  if (path === "/api/admin/dashboard") {
+    if (method !== "GET") return methodNotAllowed(ctx, "GET");
+    const days = Number(url.searchParams.get("days") || 30);
+    let recentFeedback = [];
+    try {
+      recentFeedback = await feedback.recent(5);
+    } catch (err) {
+      recentFeedback = [];
+    }
+    return sendJSON(ctx, 200, {
+      ...(await analytics.dashboard({ days, feedback: recentFeedback })),
+      usingDefaultPassword: auth.usingDefaultPassword,
+      generatedAt: new Date().toISOString()
+    });
+  }
+
+  return sendError(ctx, 404, "not_found", "接口不存在");
+}
+
+/* ---------------- 跳转记录（对齐 server/go.js） ---------------- */
+
+async function handleGo(ctx, rawId, rawIndex) {
+  let id;
+  try {
+    id = decodeURIComponent(rawId);
+  } catch (err) {
+    return sendText(ctx, 400, "400 · 作品编号不合法");
+  }
+
+  const resolved = ctx.store.resolveOffer(id, rawIndex);
+  if (!resolved || !/^https?:\/\//i.test(resolved.url)) {
+    return sendText(ctx, 404, "404 · 观看渠道不存在");
+  }
+
+  const visitor = visitorId(ctx);
+  if (allowGo(clientKey(ctx.request))) {
+    record(ctx.execution, ctx.analytics.recordClick({
+      titleId: resolved.item.id,
+      title: resolved.item.title,
+      providerId: resolved.offer.pid,
+      provider: (PROVIDERS[resolved.offer.pid] || {}).name || resolved.offer.pid,
+      visitorId: visitor,
+      offerIndex: Number(rawIndex)
+    }));
+  }
+
+  const headers = buildHeaders(ctx, 302, {
+    Location: resolved.url,
+    "Cache-Control": "no-store"
+  });
+  return new Response(null, { status: 302, headers });
+}
+
+/* ---------------- 静态资源（wrangler [assets] binding，安全头对齐 server/lib/static.js） ---------------- */
+
+async function handleStatic(ctx) {
+  const response = await ctx.env.ASSETS.fetch(ctx.request);
+  const headers = new Headers(response.headers);
+  Object.entries(SECURITY_HEADERS).forEach(([key, value]) => headers.set(key, value));
+
+  const pathname = ctx.url.pathname;
+  const adminAsset = pathname === "/admin" || pathname.startsWith("/admin/");
+  if (adminAsset) headers.set("X-Robots-Tag", "noindex, nofollow");
+
+  const contentType = String(headers.get("content-type") || "");
+  if (/text\/html/i.test(contentType)) {
+    headers.set("Content-Security-Policy", CSP);
+    headers.set("Cache-Control", "no-store");
+  } else {
+    headers.set("Cache-Control", "public, max-age=300");
+  }
+
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers
+  });
+}
+
+/* ---------------- 页面外壳（真实路径 + meta 注入，与 server/pages.js 同源） ---------------- */
+
+async function assetText(ctx, pathname) {
+  const target = new URL(pathname, ctx.url);
+  const response = await ctx.env.ASSETS.fetch(new Request(target, {
+    method: "GET",
+    headers: ctx.request.headers
+  }));
+  return response.text();
+}
+
+function sendHTML(ctx, status, html, extraHeaders = {}) {
+  const headers = buildHeaders(ctx, status, {
+    "Content-Type": "text/html; charset=utf-8",
+    "Cache-Control": "no-cache",
+    "Content-Security-Policy": CSP,
+    ...extraHeaders
+  });
+  return new Response(html, { status, headers });
+}
+
+async function handlePage(ctx, kind, id) {
+  let result;
+  if (kind === "detail") {
+    const catalog = await getCatalog(ctx.env);
+    result = meta.detailMeta(catalog.byId.get(id) || null, id, BRAND, ctx.url.origin);
+  } else if (kind === "search") {
+    result = meta.searchMeta(ctx.url, BRAND, ctx.url.origin);
+  } else if (kind === "list") {
+    result = meta.listMeta(BRAND, ctx.url.origin);
+  } else {
+    result = meta.homeMeta(BRAND, ctx.url.origin);
+  }
+
+  const template = await assetText(ctx, "/index.html");
+  const headers = result.status === 404
+    ? { "X-Robots-Tag": "noindex, nofollow", "Cache-Control": "no-store" }
+    : {};
+  return sendHTML(ctx, result.status, meta.inject(template, result.meta), headers);
+}
+
+async function handleSitemap(ctx) {
+  const catalog = await getCatalog(ctx.env);
+  const headers = buildHeaders(ctx, 200, {
+    "Content-Type": "application/xml; charset=utf-8",
+    "Cache-Control": "public, max-age=3600"
+  });
+  return new Response(meta.sitemapXML(catalog.items, ctx.url.origin), { status: 200, headers });
+}
+
+/* ---------------- 入口与路由表（顺序对齐 server/app.js） ---------------- */
+
+export default {
+  async fetch(request, env, execution) {
+    const ctx = { request, env, execution, cookies: [] };
+
+    try {
+      ctx.url = new URL(request.url);
+    } catch (err) {
+      return sendError(ctx, 400, "bad_request", "请求地址不合法");
+    }
+
+    const path = ctx.url.pathname;
+    const method = request.method;
+
+    try {
+      if (path === "/admin") {
+        if (method !== "GET" && method !== "HEAD") {
+          return sendText(ctx, 405, "405 · Method Not Allowed", { Allow: "GET, HEAD" });
+        }
+        const headers = buildHeaders(ctx, 302, { Location: "/admin/" });
+        return new Response(null, { status: 302, headers });
+      }
+
+      if (path === "/api/admin" || path.startsWith("/api/admin/")) {
+        await prepare(ctx);
+        return await handleAdmin(ctx);
+      }
+
+      const goMatch = /^\/go\/([^/]+)\/(\d+)\/?$/.exec(path);
+      if (goMatch) {
+        if (method !== "GET" && method !== "HEAD") {
+          return sendText(ctx, 405, "405 · Method Not Allowed", { Allow: "GET, HEAD" });
+        }
+        await prepare(ctx);
+        return await handleGo(ctx, goMatch[1], goMatch[2]);
+      }
+
+      if (path === "/api" || path.startsWith("/api/")) {
+        await prepare(ctx);
+        return await handleApi(ctx);
+      }
+
+      if (method !== "GET" && method !== "HEAD") {
+        return sendText(ctx, 405, "405 · Method Not Allowed", { Allow: "GET, HEAD" });
+      }
+
+      if (path === "/robots.txt") {
+        const headers = buildHeaders(ctx, 200, {
+          "Content-Type": "text/plain; charset=utf-8",
+          "Cache-Control": "public, max-age=3600"
+        });
+        const body = `User-agent: *\nAllow: /\nDisallow: /admin/\nDisallow: /list\n\nSitemap: ${ctx.url.origin}/sitemap.xml\n`;
+        return new Response(body, { status: 200, headers });
+      }
+
+      if (path === "/sitemap.xml") return await handleSitemap(ctx);
+      if (path === "/" || path === "/index.html") return await handlePage(ctx, "home");
+      if (path === "/search" || path === "/search/") return await handlePage(ctx, "search");
+      if (path === "/list" || path === "/list/") return await handlePage(ctx, "list");
+
+      const titlePage = /^\/title\/([^/]+)\/?$/.exec(path);
+      if (titlePage) {
+        let id = titlePage[1];
+        try {
+          id = decodeURIComponent(id);
+        } catch (err) {
+          id = "";
+        }
+        return await handlePage(ctx, "detail", id);
+      }
+
+      return await handleStatic(ctx);
+    } catch (err) {
+      const status = err instanceof HttpError ? err.status : 500;
+      const code = err instanceof HttpError ? err.code : "internal_error";
+      const message = status >= 500 ? "服务器开小差了，请稍后再试" : err.message;
+      if (status >= 500) console.error(BRAND.logPrefix, err);
+      return sendError(ctx, status, code, message);
+    }
+  }
+};

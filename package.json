@@ -1,0 +1,26 @@
+{
+  "name": "yingtu",
+  "version": "1.0.0",
+  "private": true,
+  "description": "映途：正版影视观看渠道搜索的全栈演示（Cloudflare Workers + D1 生产后端，Node 本地开发/测试服务，无依赖客户端）。品牌文案见 config/brand.json",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node --test",
+    "dev:worker": "wrangler dev",
+    "db:migrate": "wrangler d1 migrations apply yingtu-db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply yingtu-db --remote",
+    "db:seed": "node scripts/seed-d1.mjs && wrangler d1 execute yingtu-db --local --file=worker/seed.sql",
+    "pinyin:build": "node scripts/build-pinyin.mjs",
+    "deploy": "wrangler deploy",
+    "preflight": "node scripts/preflight.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^4.53.0"
+  },
+  "engines": {
+    "node": ">=18.16"
+  },
+  "license": "MIT"
+}

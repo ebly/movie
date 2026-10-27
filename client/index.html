@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!--SEO-->
+  <meta name="theme-color" content="#f7f3ee">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='10' fill='%23f2e9e0'/%3E%3Cpath d='M7 22 16 8l9 14' fill='none' stroke='%23a4684f' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='16' cy='8' r='2.6' fill='%2366776a'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <!-- 字体不阻塞首屏：先按 print 载入，脚本就绪后再切换为 all；被墙时只回退到系统字体。 -->
+  <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Manrope:wght@300;400;500;600&family=Noto+Sans+SC:wght@300;400;500&family=Noto+Serif+SC:wght@400;500;600&display=swap">
+  <link id="font-css" rel="stylesheet" media="print" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Manrope:wght@300;400;500;600&family=Noto+Sans+SC:wght@300;400;500&family=Noto+Serif+SC:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="texture" aria-hidden="true"></div>
+  <div id="app">
+    <div class="boot" role="status" aria-live="polite">
+      <div class="soft-loader" aria-hidden="true"><i></i><i></i><i></i></div>
+      <p>正在准备映途…</p>
+    </div>
+  </div>
+  <noscript><p class="noscript">映途需要 JavaScript 才能搜索，请开启后重试。</p></noscript>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <dialog id="feedback-dialog" class="feedback-sheet" aria-labelledby="feedback-title">
+    <form id="feedback-form" class="sheet-inner">
+      <header class="sheet-head">
+        <div>
+          <span class="sheet-kicker">想看的，都可以说</span>
+          <h2 id="feedback-title">给我们留句话</h2>
+        </div>
+        <button type="button" class="sheet-close" data-close-dialog aria-label="关闭反馈窗口">×</button>
+      </header>
+      <p class="sheet-copy">无论是补片建议、筛选体验还是页面问题，都欢迎直接写在这里。</p>
+      <label class="field-label" for="feedback-message">留言内容</label>
+      <textarea id="feedback-message" name="message" rows="6" minlength="2" maxlength="600" placeholder="比如：希望能按“已有会员的平台”筛选……" required></textarea>
+      <label class="field-label" for="feedback-contact">联系方式<span>选填</span></label>
+      <input id="feedback-contact" name="contact" type="text" maxlength="120" autocomplete="email" placeholder="邮箱或其他联系方式">
+      <input class="hp" type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <footer class="sheet-foot">
+        <span>演示环境 · 留言只保存在本地服务端</span>
+        <button class="primary-action" type="submit">发送</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <script src="/api.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

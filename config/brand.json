@@ -1,0 +1,15 @@
+{
+  "name": "映途",
+  "latin": "Yingtu",
+  "slug": "yingtu",
+  "tagline": "正版观看渠道索引",
+  "slogan": "找到正版影视的观看去处",
+  "apiName": "yingtu-api",
+  "logPrefix": "[yingtu]",
+  "cookies": {
+    "admin": "yt_admin",
+    "visitor": "yt_vid"
+  },
+  "defaultPassword": "yingtu-admin",
+  "disclaimer": "映途仅聚合正版流媒体平台的观看信息，不存储影片，也不提供网盘或盗版链接。当前片库、价格与可看状态均为演示数据。"
+}
