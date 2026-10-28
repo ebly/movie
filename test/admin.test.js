@@ -1,0 +1,351 @@
+"use strict";
+
+const { describe, test, before, after } = require("node:test");
+const assert = require("node:assert/strict");
+const http = require("node:http");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const { createApp } = require("../server/app");
+const BRAND = require("../config/brand.json");
+
+let server;
+let base;
+let tmpDir;
+let dataFile;
+let analyticsFile;
+let feedbackFile;
+let cookie;
+
+const NEW_TITLE = {
+  title: "测试剧集",
+  original: "Test Show",
+  year: 2025,
+  type: "剧集",
+  rating: 8.6,
+  seasons: 2,
+  runtime: null,
+  genres: ["剧情"],
+  synopsis: "一部只用于测试的剧集。",
+  aliases: ["测试别名"],
+  tags: ["测试"],
+  hot: true,
+  art: { p1: "#e7dfcf", p2: "#b8aaa0", p3: "#8c3327", ink: "#1b2422", motif: "orbit" },
+  offers: [
+    {
+      pid: "netflix",
+      tier: "订阅",
+      season: "S01",
+      quality: ["4K", "中字"],
+      price: "包含在订阅中",
+      verified: true
+    }
+  ]
+};
+
+function appendEvents(entries) {
+  fs.appendFileSync(analyticsFile, entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n", "utf8");
+}
+
+describe(`${BRAND.name} 管理后台（独立项目）`, () => {
+  before(async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "yingtu-admin-"));
+    dataFile = path.join(tmpDir, "titles.json");
+    analyticsFile = path.join(tmpDir, "analytics.ndjson");
+    feedbackFile = path.join(tmpDir, "feedback.ndjson");
+    server = http.createServer(createApp({
+      dataFile,
+      analyticsFile,
+      feedbackFile,
+      adminPassword: "test-admin",
+      frontendUrl: "http://127.0.0.1:4173",
+      logger: false
+    }));
+    await new Promise((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    base = `http://127.0.0.1:${server.address().port}`;
+  });
+
+  after(async () => {
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  async function call(pathname, { method = "GET", body, auth = true, headers = {} } = {}) {
+    const finalHeaders = { Accept: "application/json", ...headers };
+    if (body !== undefined) finalHeaders["Content-Type"] = "application/json";
+    if (auth && cookie) finalHeaders.Cookie = cookie;
+    const response = await fetch(base + pathname, {
+      method,
+      headers: finalHeaders,
+      body: body === undefined ? undefined : JSON.stringify(body)
+    });
+    let payload = null;
+    try {
+      payload = await response.json();
+    } catch (err) {
+      payload = null;
+    }
+    return { response, body: payload };
+  }
+
+  test("后台接口默认都需要会话", async () => {
+    const titles = await call("/api/titles", { auth: false });
+    assert.equal(titles.response.status, 401);
+    assert.equal(titles.body.error.code, "unauthorized");
+
+    const dashboard = await call("/api/dashboard", { auth: false });
+    assert.equal(dashboard.response.status, 401);
+
+    const feedback = await call("/api/feedback", { auth: false });
+    assert.equal(feedback.response.status, 401);
+
+    const session = await call("/api/session", { auth: false });
+    assert.equal(session.response.status, 200);
+    assert.equal(session.body.authenticated, false);
+  });
+
+  test("bootstrap 暴露品牌与前台地址", async () => {
+    const boot = await call("/api/bootstrap", { auth: false });
+    assert.equal(boot.response.status, 200);
+    assert.equal(boot.body.brand.name, BRAND.name);
+    assert.equal(boot.body.frontendUrl, "http://127.0.0.1:4173");
+
+    // 品牌只给白名单字段：defaultPassword / cookies 绝不能出现在公开接口里
+    const raw = JSON.stringify(boot.body);
+    assert.doesNotMatch(raw, /defaultPassword/, "不应下发默认密码");
+    assert.doesNotMatch(raw, /yt_admin|yt_vid/, "不应下发内部 Cookie 名");
+    assert.equal(boot.body.brand.defaultPassword, undefined);
+    assert.equal(boot.body.usingDefaultPassword, undefined);
+  });
+
+  test("登录拒绝错误密码，并下发严格 Cookie", async () => {
+    const bad = await call("/api/login", {
+      method: "POST",
+      body: { password: "wrong-password" },
+      auth: false
+    });
+    assert.equal(bad.response.status, 401);
+    assert.equal(bad.body.error.code, "invalid_password");
+
+    const good = await fetch(base + "/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: "test-admin" })
+    });
+    assert.equal(good.status, 200);
+    const setCookie = good.headers.get("set-cookie");
+    assert.ok(setCookie);
+    assert.match(setCookie, new RegExp(`${BRAND.cookies.admin}=`));
+    assert.match(setCookie, /HttpOnly/i);
+    assert.match(setCookie, /SameSite=Strict/i);
+    cookie = setCookie.split(";")[0];
+
+    const session = await call("/api/session");
+    assert.equal(session.body.authenticated, true);
+    assert.equal(session.body.usingDefaultPassword, false);
+    assert.ok(Date.parse(session.body.expiresAt) > Date.now());
+
+    // 老路径（挂在 /admin/ 下的那套接口）应当彻底不存在
+    const legacy = await call("/api/admin/session");
+    assert.equal(legacy.response.status, 404);
+  });
+
+  test("meta 提供编辑器选项", async () => {
+    const { response, body } = await call("/api/meta");
+    assert.equal(response.status, 200);
+    assert.ok(body.providers.some((provider) => provider.id === "netflix"));
+    assert.deepEqual(body.types, ["剧集", "电影", "动画", "纪录片"]);
+    assert.ok(body.tiers.includes("订阅"));
+    assert.ok(body.qualities.includes("4K"));
+    assert.ok(body.motifs.includes("orbit"));
+    assert.ok(body.artPresets.length >= 3);
+    assert.ok(body.defaultArt.p1);
+  });
+
+  test("作品可以新增、编辑、删除，并带校验", async () => {
+    const unauthenticated = await fetch(base + "/api/titles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(NEW_TITLE)
+    });
+    assert.equal(unauthenticated.status, 401);
+
+    const created = await call("/api/titles", { method: "POST", body: NEW_TITLE });
+    assert.equal(created.response.status, 201);
+    assert.equal(created.body.item.id, "test-show");
+    assert.equal(created.body.item.offers[0].quality[0], "4K");
+
+    const updated = await call("/api/titles/test-show", {
+      method: "PUT",
+      body: { ...NEW_TITLE, title: "测试剧集 第二版", rating: 9.1, hot: false }
+    });
+    assert.equal(updated.response.status, 200);
+    assert.equal(updated.body.item.title, "测试剧集 第二版");
+    assert.equal(updated.body.item.rating, 9.1);
+
+    const persisted = JSON.parse(fs.readFileSync(dataFile, "utf8"));
+    const row = persisted.items.find((item) => item.id === "test-show");
+    assert.equal(row.title, "测试剧集 第二版");
+    assert.ok(row.updatedAt);
+
+    const badRating = await call("/api/titles/test-show", {
+      method: "PUT",
+      body: { ...NEW_TITLE, rating: 11 }
+    });
+    assert.equal(badRating.response.status, 422);
+
+    const badProvider = await call("/api/titles", {
+      method: "POST",
+      body: { ...NEW_TITLE, original: "Bad Provider", offers: [{ pid: "nope", quality: ["4K"] }] }
+    });
+    assert.equal(badProvider.response.status, 422);
+
+    const noTitle = await call("/api/titles", {
+      method: "POST",
+      body: { ...NEW_TITLE, title: "  ", original: "No Title" }
+    });
+    assert.equal(noTitle.response.status, 422);
+
+    const missing = await call("/api/titles/not-real", { method: "DELETE" });
+    assert.equal(missing.response.status, 404);
+
+    const removed = await call("/api/titles/test-show", { method: "DELETE" });
+    assert.equal(removed.response.status, 200);
+
+    const list = await call("/api/titles");
+    assert.ok(!list.body.items.some((item) => item.id === "test-show"));
+  });
+
+  test("海报地址校验：只接受 https 图片直链", async () => {
+    const POSTER = "https://img.example.com/poster-400x600.jpg";
+
+    const created = await call("/api/titles", {
+      method: "POST",
+      body: { ...NEW_TITLE, poster: POSTER }
+    });
+    assert.equal(created.response.status, 201);
+    assert.equal(created.body.item.poster, POSTER);
+
+    const list = await call("/api/titles");
+    assert.equal(list.body.items.find((item) => item.id === "test-show").poster, POSTER);
+
+    const cleared = await call("/api/titles/test-show", {
+      method: "PUT",
+      body: { ...NEW_TITLE, poster: "   " }
+    });
+    assert.equal(cleared.response.status, 200);
+    assert.equal(cleared.body.item.poster, null);
+
+    for (const bad of ["http://img.example.com/a.jpg", "javascript:alert(1)", "not a url", "ftp://img.example.com/a.jpg"]) {
+      const rejected = await call("/api/titles/test-show", {
+        method: "PUT",
+        body: { ...NEW_TITLE, poster: bad }
+      });
+      assert.equal(rejected.response.status, 422, `${bad} 应当被拒绝`);
+    }
+
+    await call("/api/titles/test-show", { method: "DELETE" });
+  });
+
+  test("别人（前台进程）改过的片库，后台能立刻读到", async () => {
+    const external = JSON.parse(fs.readFileSync(dataFile, "utf8"));
+    external.items.push({ ...NEW_TITLE, id: "external-write", title: "外部写入的作品" });
+    fs.writeFileSync(dataFile, JSON.stringify(external, null, 2) + "\n", "utf8");
+    // 文件系统 mtime 精度可能是秒级，保证下一次比对一定看到差异。
+    const future = new Date(Date.now() + 2000);
+    fs.utimesSync(dataFile, future, future);
+
+    const list = await call("/api/titles");
+    assert.ok(list.body.items.some((item) => item.id === "external-write"), "应当读到外部写入的作品");
+  });
+
+  test("看板会重新读取前台进程追加的统计文件", async () => {
+    const now = new Date().toISOString();
+    appendEvents([
+      { id: "e1", at: now, type: "search", query: "沙丘", resultType: "全部", total: 3, visitorId: "v-1" },
+      { id: "e2", at: now, type: "search", query: "zzz-no-such-title", resultType: "全部", total: 0, visitorId: "v-1" },
+      { id: "e3", at: now, type: "view", titleId: "hotd", title: "龙之家族", visitorId: "v-1" },
+      { id: "e4", at: now, type: "click", titleId: "hotd", title: "龙之家族", providerId: "max", provider: "Max", visitorId: "v-2" }
+    ]);
+    const stamped = new Date(Date.now() + 1000);
+    fs.utimesSync(analyticsFile, stamped, stamped);
+
+    const { response, body } = await call("/api/dashboard?days=7");
+    assert.equal(response.status, 200);
+    assert.equal(body.range.days, 7);
+    assert.equal(body.trend.length, 7);
+    assert.equal(body.overview.searches, 2);
+    assert.equal(body.overview.views, 1);
+    assert.equal(body.overview.clicks, 1);
+    assert.equal(body.overview.visitors, 2);
+    assert.equal(body.overview.zeroSearches, 1);
+    assert.ok(body.topSearches.some((entry) => entry.query === "沙丘"));
+    assert.ok(body.zeroSearches.some((entry) => entry.query === "zzz-no-such-title"));
+    assert.ok(body.platforms.some((entry) => entry.id === "max" && entry.clicks === 1));
+    assert.ok(body.recent.some((entry) => entry.type === "click"));
+    assert.match(body.visitors[0].label, /^访客 /);
+    assert.equal(body.usingDefaultPassword, false);
+  });
+
+  test("反馈收件箱可以列列表、搜索与分页", async () => {
+    fs.appendFileSync(
+      feedbackFile,
+      [
+        { id: "f1", createdAt: new Date().toISOString(), message: "希望增加按平台筛选", contact: "fan@example.com" },
+        { id: "f2", createdAt: new Date(Date.now() + 1000).toISOString(), message: "搜索「沙丘」时结果能不能按年份排序", contact: "" }
+      ].map((entry) => JSON.stringify(entry)).join("\n") + "\n",
+      "utf8"
+    );
+
+    const inbox = await call("/api/feedback?limit=1");
+    assert.equal(inbox.response.status, 200);
+    assert.equal(inbox.body.total, 2);
+    assert.equal(inbox.body.matched, 2);
+    assert.equal(inbox.body.items.length, 1);
+    assert.ok(inbox.body.stats.week >= 2);
+    assert.ok(inbox.body.stats.contact >= 1);
+    assert.equal(inbox.body.items[0].message, "搜索「沙丘」时结果能不能按年份排序");
+
+    const pageTwo = await call("/api/feedback?limit=1&offset=1");
+    assert.equal(pageTwo.body.offset, 1);
+    assert.equal(pageTwo.body.items[0].message, "希望增加按平台筛选");
+
+    const filtered = await call(`/api/feedback?q=${encodeURIComponent("平台筛选")}`);
+    assert.equal(filtered.body.total, 2);
+    assert.equal(filtered.body.matched, 1);
+
+    const none = await call(`/api/feedback?q=${encodeURIComponent("不存在的关键词")}`);
+    assert.equal(none.body.matched, 0);
+    assert.deepEqual(none.body.items, []);
+  });
+
+  test("后台首页在根路径提供，带 CSP 与 noindex", async () => {
+    const page = await fetch(base + "/");
+    assert.equal(page.status, 200);
+    assert.match(page.headers.get("content-type"), /text\/html/);
+    assert.match(page.headers.get("content-security-policy") || "", /default-src 'self'/);
+    assert.match(page.headers.get("x-robots-tag") || "", /noindex/);
+    const html = await page.text();
+    assert.match(html, new RegExp(`${BRAND.name} 管理后台`));
+    assert.match(html, /admin\.js/);
+
+    const script = await fetch(base + "/admin.js");
+    assert.equal(script.status, 200);
+    assert.match(script.headers.get("x-robots-tag") || "", /noindex/);
+
+    const legacy = await fetch(base + "/admin/");
+    assert.equal(legacy.status, 404);
+  });
+
+  test("退出登录会清掉会话", async () => {
+    const logout = await call("/api/logout", { method: "POST" });
+    assert.equal(logout.response.status, 200);
+    assert.match(logout.response.headers.get("set-cookie") || "", /Max-Age=0/);
+
+    const after = await call("/api/titles");
+    assert.equal(after.response.status, 401);
+  });
+});
