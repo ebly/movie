@@ -18,6 +18,7 @@ import { createFeedbackStore, createRateLimiter, cleanText } from "./feedback.js
 import { createAdminAuth, parseCookies, secureFlag } from "./adminAuth.js";
 import meta from "../shared/meta.js";
 import tmdb from "../shared/tmdb.js";
+import brandUtil from "../shared/brand.js";
 
 // Workers 没有 process.uptime()，用 isolate 启动时刻近似（health 的 uptime 字段）。
 const BOOT_TIME = Date.now();
@@ -44,7 +45,7 @@ function invalidateCatalog() {
 
 const API_INDEX = {
   name: `${BRAND.name} API`,
-  brand: BRAND,
+  brand: brandUtil.publicBrand(BRAND),
   version: "1.0.0",
   endpoints: [
     { method: "GET", path: "/api/health", description: "健康检查" },
@@ -213,7 +214,7 @@ async function handleApi(ctx) {
   if (path === "/api/bootstrap") {
     if (method !== "GET") return methodNotAllowed(ctx, "GET");
     return sendJSON(ctx, 200, {
-      brand: BRAND,
+      brand: brandUtil.publicBrand(BRAND),
       providers: store.providers,
       hot: store.hot(),
       types: store.types,
@@ -565,10 +566,6 @@ async function handleStatic(ctx) {
   const headers = new Headers(response.headers);
   Object.entries(SECURITY_HEADERS).forEach(([key, value]) => headers.set(key, value));
 
-  const pathname = ctx.url.pathname;
-  const adminAsset = pathname === "/admin" || pathname.startsWith("/admin/");
-  if (adminAsset) headers.set("X-Robots-Tag", "noindex, nofollow");
-
   const contentType = String(headers.get("content-type") || "");
   if (/text\/html/i.test(contentType)) {
     headers.set("Content-Security-Policy", CSP);
@@ -650,12 +647,10 @@ export default {
     const method = request.method;
 
     try {
-      if (path === "/admin") {
-        if (method !== "GET" && method !== "HEAD") {
-          return sendText(ctx, 405, "405 · Method Not Allowed", { Allow: "GET, HEAD" });
-        }
-        const headers = buildHeaders(ctx, 302, { Location: "/admin/" });
-        return new Response(null, { status: 302, headers });
+      // 管理后台是独立项目（../movie-admin），前台站点不再提供 /admin 页面；
+      // /api/admin/* 仍保留，供单独部署的后台调用。
+      if (path === "/admin" || path.startsWith("/admin/")) {
+        return sendText(ctx, 404, "404 · 页面不存在");
       }
 
       if (path === "/api/admin" || path.startsWith("/api/admin/")) {
@@ -686,7 +681,7 @@ export default {
           "Content-Type": "text/plain; charset=utf-8",
           "Cache-Control": "public, max-age=3600"
         });
-        const body = `User-agent: *\nAllow: /\nDisallow: /admin/\nDisallow: /list\n\nSitemap: ${ctx.url.origin}/sitemap.xml\n`;
+        const body = `User-agent: *\nAllow: /\nDisallow: /list\n\nSitemap: ${ctx.url.origin}/sitemap.xml\n`;
         return new Response(body, { status: 200, headers });
       }
 

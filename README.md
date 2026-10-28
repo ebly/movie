@@ -1,6 +1,6 @@
 # 映途
 
-映途是一个“正版影视观看渠道搜索”的全栈演示项目：前台与管理后台统一使用「映途」品牌（旧称已完全弃用），采用柔和杂志风设计，包含前台搜索站和一套可用的管理后台。生产目标后端为 Cloudflare Workers + D1，本地另附零依赖 Node 服务用于开发与测试。项目聚合 Netflix、Max、Apple TV+、Prime Video、Disney+ 等正版平台的观看信息，不抓取、不存储、也不提供网盘或盗版链接。
+映途是一个“正版影视观看渠道搜索”的全栈演示项目，采用柔和杂志风设计。**本仓库只包含前台站点**：管理后台已拆成独立项目 [../movie-admin](../movie-admin)，自己一个进程、自己一个端口，不再挂在 `/admin/` 下面。生产目标后端为 Cloudflare Workers + D1，本地另附零依赖 Node 服务用于开发与测试。项目聚合 Netflix、Max、Apple TV+、Prime Video、Disney+ 等正版平台的观看信息，不抓取、不存储、也不提供网盘或盗版链接。
 
 当前是**演示数据**：16 部作品、12 个平台。评分、价格、可看状态和播放地址均为模拟值，不会真的扣费或播放。
 
@@ -10,39 +10,40 @@
 
 环境要求：Node.js >= 18.16。本地 Node 服务零第三方依赖，可直接运行；若要使用 Workers 后端 / wrangler 工具链，先执行一次 `npm install`。
 
-```powershell
-cd E:\workspacedemo\movie
+```bash
+cd D:/workspace/movie
 npm start
 ```
 
 - 前台：http://127.0.0.1:4173
-- 后台：http://127.0.0.1:4173/admin/
+- 后台：**不在这里**。另开一个终端启动后台项目：
 
-后台首次启动使用演示密码 `yingtu-admin`。正式使用前请设置 `ADMIN_PASSWORD`：
-
-```powershell
-$env:ADMIN_PASSWORD="换成你自己的强密码"
+```bash
+cd D:/workspace/movie-admin
 npm start
 ```
 
+后台在 http://127.0.0.1:4174 ，默认密码 `yingtu-admin`（用 `ADMIN_PASSWORD` 覆盖）。两个进程共用 `data/` 下的同一份文件：后台改完片库，前台刷新即生效，不用重启。
+
 开发时可以用自动重启：
 
-```powershell
+```bash
 npm run dev
 ```
 
 运行测试：
 
-```powershell
-npm test
+```bash
+npm test              # Node 服务与 shared/ 的单元测试
+npm run smoke:worker  # 打真实部署包并在 Node 里跑 worker 的 fetch 入口（含 D1 全流程）
 ```
+
+`smoke:worker` 先用 `wrangler deploy --dry-run` 打包，再用 `node:sqlite` 模拟 D1、用文件系统模拟 `ASSETS`，把生产 bundle 当普通模块跑一遍：公开 API、页面外壳、`/go` 跳转、后台登录与增删改、看板、反馈、鉴权边界共 33 项断言。它不依赖 Cloudflare 账号，也不需要 `workerd`——本机缺 VC++ 运行库时 `wrangler dev` 起不来，这个脚本是唯一能在本地跑通生产代码路径的方式。需要 Node 22+（`node:sqlite`）。
 
 换端口或允许局域网访问：
 
-```powershell
-$env:PORT=4174
-$env:HOST="0.0.0.0"
-npm start
+```bash
+PORT=4174 HOST=0.0.0.0 npm start
 ```
 
 不要直接双击 `client/index.html`。页面需要同源 API，直接以 `file://` 打开时会显示“服务端还没有启动”的提示。
@@ -82,35 +83,31 @@ Workers 版与 Node 版的行为差异（都已在冒烟测试中确认）：
 
 - 会话令牌改为 HMAC-SHA256 签名的无状态 Cookie（`ADMIN_SECRET` 缺失时由密码派生）；登出只清 Cookie，服务端无法单独吊销某个未过期令牌。
 - 管理端写入用 `db.batch` 事务；本地 miniflare 的 batch 有缺陷时自动降级为逐条执行（仅影响本地演示的原子性）。
-- `run_worker_first` 是路由白名单而不是 `true`：只有页面外壳、`/api/*`、`/go/*`、`/admin/*` 进 Worker，静态资源由静态层直出，不消耗 10 万次/天的免费请求额度。新增前台页面路由要同步这个列表。
+- `run_worker_first` 是路由白名单而不是 `true`：只有页面外壳、`/api/*`、`/go/*` 进 Worker，静态资源由静态层直出，不消耗 10 万次/天的免费请求额度。新增前台页面路由要同步这个列表。
 - 目录在一次 isolate 内缓存 20 秒，避免每个请求两条全表扫描；后台写入后立即失效，编辑仍然即时可见。
 - 埋点写入走 `waitUntil`，不占用响应时间。
 - 统计写入 `events` 表：匿名访客用 `visitor_id` 列（同样来自 `yt_vid` Cookie，不存 IP/UA）；搜索“结果数”借用 `offer_index` 列；标题/平台名查询时关联还原；按日分桶使用 UTC。
 - 反馈/登录限流是 isolate 内存级近似，跨实例与冷启动会重置——与 Node 的“单进程内存”同级，都不是分布式限流。
 - 后台会话默认 12 小时；密码默认值、演示数据与免责声明与 Node 版相同。
 
-## 管理后台
+## 管理后台（已拆成独立项目）
 
-后台是独立页面，但复用同一套服务端和片库数据。登录后可以：
+后台不在本仓库里，在 [../movie-admin](../movie-admin)。它自己一个进程、自己一个端口（默认 `4174`），界面不再挂在 `/admin/` 下。
 
-- **数据看板**：7/30/90 天搜索、详情浏览、平台跳转、独立访客；环比变化；每日趋势；热门搜索；无结果搜索；热门作品；平台跳转排行；匿名访客活跃度；最近动态和反馈。
-- **片库管理**：搜索、按类型筛选、仅看热门、编辑、删除。
-- **TMDB 导入**：片库页右上角「TMDB 导入」，粘贴自己的 TMDB Key（v3 API Key 或 v4 Read Token）后按片名搜索，选中条目即把中文名、原名、年份、类型、评分、类型标签、简介和海报地址预填进新增表单，确认后再保存。Key 只保存在本机浏览器，也可以用 `TMDB_API_KEY` 环境变量/SECRET 统一配置。
-- **用户反馈**：按时间倒序查看全部留言，统计累计数量、最近 7 天新增与留有联系方式的人数；搜索留言或邮箱；分页浏览；从看板一键进入完整收件箱。
-- **新增/编辑作品**：中文名、原名、年份、类型、评分、季数、片长、类型标签、别名、搜索标签、简介、热门推荐。
-- **海报**：可以粘贴一张外部海报图片地址（`https://` 图片直链，最长 500 字），右侧实时预览；留空则用程序化海报。程序化海报仍然可选图案（轨道、余烬、沙丘等）、三组颜色和文字色，并作为图片加载失败时的回退。
-- **观看渠道**：任意增删平台、观看方式（订阅/租赁/购买/免费）、季数、画质（4K/HDR/杜比/1080P/中字）、价格、是否已验证。
-- 保存后**立即**反映到前台搜索与详情页，无需重启。
+```
+D:/workspace/movie        前台  http://127.0.0.1:4173
+D:/workspace/movie-admin  后台  http://127.0.0.1:4174
+```
 
-后台地址和接口都带 `noindex`，`/admin` 会跳转到 `/admin/`，`robots.txt` 也屏蔽了 `/admin/`。但这些只是降低被索引的概率，**真正的访问控制是密码和会话**。
+两个项目通过 `data/` 里的文件通信，没有 RPC、没有额外数据库：
 
-### 后台登录与会话
+- `titles.json`：后台写，前台读。前台每次请求前比对文件 mtime，后台保存后刷新前台立即生效，不用重启。
+- `analytics.ndjson`：前台写，后台读。看板每次请求都重新载入。
+- `feedback.ndjson`：前台写，后台读。
 
-- 密码来自 `ADMIN_PASSWORD`；未设置时使用演示默认值 `yingtu-admin`，服务端启动时会打印警告。
-- 会话保存在内存中，通过 `yt_admin` HttpOnly、SameSite=Strict Cookie 传递，默认 12 小时过期。
-- 重启服务端会注销所有后台会话。
-- 登录接口按 IP 限制为 10 分钟 8 次；后台写接口还会校验同源 `Origin`。
-- 这是单机演示级鉴权：没有账号、角色、审计日志、二次验证或密码找回。公网部署前应换成正式的身份系统，并启用 HTTPS。
+功能清单、接口列表、环境变量与后台鉴权说明见 [movie-admin/README.md](../movie-admin/README.md)。
+
+本仓库的 `server/` 不含任何后台代码：`/admin`、`/admin/*`、`/api/admin/*` 在本地 Node 服务上一律 404，`client/admin/` 已删除，`robots.txt` 也不再需要屏蔽后台路径。
 
 ## 环境变量
 
@@ -118,14 +115,11 @@ Workers 版与 Node 版的行为差异（都已在冒烟测试中确认）：
 | --- | --- | --- |
 | `PORT` | `4173` | HTTP 端口 |
 | `HOST` | `127.0.0.1` | 监听地址；局域网访问设为 `0.0.0.0` |
-| `ADMIN_PASSWORD` | `yingtu-admin` | 后台密码；**正式使用必须修改** |
-| `DATA_FILE` | `data/titles.json` | 可变片库文件 |
+| `DATA_FILE` | `data/titles.json` | 可变片库文件（与后台共用同一份） |
 | `ANALYTICS_FILE` | `data/analytics.ndjson` | 匿名行为事件 |
 | `FEEDBACK_FILE` | `data/feedback.ndjson` | 前台反馈 |
-| `TMDB_API_KEY` | 空 | 后台 TMDB 导入用的 Key（v3 API Key 或 v4 Read Token），不设则由后台页面自带 |
-| `TMDB_BASE` | `https://api.themoviedb.org/3` | TMDB 接口地址；本地网络需要代理/镜像时改这里 |
 
-Workers 部署时环境变量改在 `wrangler.toml [vars]` / `wrangler secret put`：`ADMIN_PASSWORD`（后台密码）、`ADMIN_SECRET`（会话签名密钥）。
+后台项目的环境变量（`ADMIN_PASSWORD`、`ADMIN_DATA_DIR`、`FRONTEND_URL`、`TMDB_API_KEY` 等）见 [movie-admin/README.md](../movie-admin/README.md)。Workers 部署时改用 `wrangler secret put ADMIN_PASSWORD` / `ADMIN_SECRET`。
 
 ## 换品牌（改一处即可）
 

@@ -20,7 +20,6 @@ describe("页面外壳与 SEO", () => {
       dataFile: path.join(tmpDir, "titles.json"),
       analyticsFile: path.join(tmpDir, "analytics.ndjson"),
       feedbackFile: path.join(tmpDir, "feedback.ndjson"),
-      adminPassword: "test-admin",
       logger: false
     }));
     await new Promise((resolve, reject) => {
@@ -82,10 +81,10 @@ describe("页面外壳与 SEO", () => {
     assert.ok(count >= 5, `sitemap 至少应包含 5 条，实际 ${count}`);
   });
 
-  test("robots.txt 指向 sitemap", async () => {
+  test("robots.txt 指向 sitemap，且不再暴露后台路径", async () => {
     const response = await fetch(`${base}/robots.txt`);
     const body = await response.text();
-    assert.match(body, /Disallow: \/admin\//);
+    assert.doesNotMatch(body, /\/admin/);
     assert.match(body, /Sitemap: http:\/\/127\.0\.0\.1:\d+\/sitemap\.xml/);
   });
 });

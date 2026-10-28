@@ -14,7 +14,8 @@
     "db:seed": "node scripts/seed-d1.mjs && wrangler d1 execute yingtu-db --local --file=worker/seed.sql",
     "pinyin:build": "node scripts/build-pinyin.mjs",
     "deploy": "wrangler deploy",
-    "preflight": "node scripts/preflight.mjs"
+    "preflight": "node scripts/preflight.mjs",
+    "smoke:worker": "node --experimental-sqlite --no-warnings scripts/worker-smoke.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.53.0"

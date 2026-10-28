@@ -7,8 +7,6 @@ const { createStore } = require("./store");
 const { TitleRepository } = require("./repository");
 const { AnalyticsStore } = require("./analytics");
 const { FeedbackStore } = require("./feedback");
-const { AdminAuth } = require("./adminAuth");
-const { createAdminApi } = require("./admin");
 const { createApi } = require("./api");
 const { createGoHandler } = require("./go");
 const { serveStatic } = require("./lib/static");
@@ -41,25 +39,10 @@ function createApp(options = {}) {
   const store = options.store || createStore({ providers: seed.PROVIDERS, repository });
   const analytics = options.analytics || new AnalyticsStore({ file: analyticsFile, logger: dataLogger });
   const feedback = options.feedback || new FeedbackStore(feedbackFile);
-  const auth = options.auth || new AdminAuth({
-    password: options.adminPassword !== undefined ? options.adminPassword : process.env.ADMIN_PASSWORD
-  });
   const api = createApi({ store, feedback, analytics });
-  const adminApi = createAdminApi({
-    repository,
-    analytics,
-    auth,
-    feedback,
-    providers: seed.PROVIDERS,
-    types: store.types
-  });
   const go = createGoHandler({ store, analytics });
   const clientRoot = path.resolve(options.clientRoot || path.join(__dirname, "..", "client"));
   const pages = new PageRenderer({ clientRoot, brand: BRAND, repository });
-
-  if (auth.usingDefaultPassword) {
-    log(`${BRAND.logPrefix} 管理后台正在使用默认密码，部署前请设置 ADMIN_PASSWORD`);
-  }
 
   return async function handler(req, res) {
     const started = process.hrtime.bigint();
@@ -79,19 +62,9 @@ function createApp(options = {}) {
         throw new HttpError(400, "bad_request", "请求地址不合法");
       }
 
-      if (pathname === "/admin") {
-        if (req.method !== "GET" && req.method !== "HEAD") {
-          sendText(res, 405, "405 · Method Not Allowed", { Allow: "GET, HEAD" });
-          return;
-        }
-        applySecurityHeaders(res);
-        res.writeHead(302, { Location: "/admin/", "Content-Length": "0" });
-        res.end();
-        return;
-      }
-
-      if (pathname === "/api/admin" || pathname.startsWith("/api/admin/")) {
-        await adminApi(req, res);
+      if (pathname === "/admin" || pathname.startsWith("/admin/") || pathname === "/api/admin" || pathname.startsWith("/api/admin/")) {
+        // 管理后台已经拆成独立项目（默认 http://127.0.0.1:4174），这里不再提供任何后台入口。
+        sendText(res, 404, "404 · 页面不存在");
         return;
       }
 
@@ -150,7 +123,7 @@ function createApp(options = {}) {
           "Content-Type": "text/plain; charset=utf-8",
           "Cache-Control": "public, max-age=3600"
         });
-        res.end(`User-agent: *\nAllow: /\nDisallow: /admin/\nDisallow: /list\n\nSitemap: ${origin}/sitemap.xml\n`);
+        res.end(`User-agent: *\nAllow: /\nDisallow: /list\n\nSitemap: ${origin}/sitemap.xml\n`);
         return;
       }
 

@@ -22,7 +22,6 @@ before(async () => {
     dataFile: path.join(tmpDir, "titles.json"),
     analyticsFile: path.join(tmpDir, "analytics.ndjson"),
     feedbackFile,
-    adminPassword: "test-admin",
     logger: false
   }));
   await new Promise((resolve, reject) => {
@@ -56,6 +55,25 @@ test("health endpoint", async () => {
   assert.equal(response.status, 200);
   assert.equal(body.ok, true);
   assert.equal(body.name, BRAND.apiName);
+});
+
+test("bootstrap 只下发白名单品牌字段，不泄漏默认密码与内部配置", async () => {
+  const { response, body } = await getJSON("/api/bootstrap");
+  assert.equal(response.status, 200);
+  assert.equal(body.brand.name, BRAND.name);
+  assert.equal(body.brand.slogan, BRAND.slogan);
+  assert.ok(body.brand.disclaimer);
+
+  const raw = JSON.stringify(body);
+  assert.doesNotMatch(raw, /defaultPassword/, "不应下发 defaultPassword");
+  assert.doesNotMatch(raw, /yt_admin|yt_vid/, "不应下发内部 Cookie 名");
+  assert.doesNotMatch(raw, /logPrefix/, "不应下发日志前缀");
+  assert.equal(body.brand.defaultPassword, undefined);
+  assert.equal(body.brand.cookies, undefined);
+
+  // /api 索引接口同样不能带出内部字段
+  const index = await getJSON("/api");
+  assert.doesNotMatch(JSON.stringify(index.body), /defaultPassword/);
 });
 
 test("search ranks the exact title first and includes tag matches", async () => {

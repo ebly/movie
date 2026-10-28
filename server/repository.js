@@ -3,7 +3,6 @@
 const fs = require("fs");
 const path = require("path");
 const BRAND = require("../config/brand.json");
-const { candidateId } = require("./validate");
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -22,8 +21,13 @@ function isValidItem(item) {
 }
 
 /**
- * Mutable title repository backed by one JSON file.
- * Mutations are serialized and written atomically (temp file + rename).
+ * 只读片库仓库：前台进程不做任何写入。
+ *
+ * 写操作全部归独立的后台项目（../movie-admin），它独占写 titles.json。
+ * 这里每次读取前比对一次 mtime，后台改完文件，前台下一个请求就能看到，不用重启。
+ *
+ * 曾经放过的 create/update/remove 已经删除：那套代码没有冲突检测，
+ * 一旦被误调用会拿内存快照覆盖后台刚写入的内容。
  */
 class TitleRepository {
   constructor({ file, seedData, logger = console }) {
@@ -32,8 +36,29 @@ class TitleRepository {
     this.logger = logger;
     this.items = [];
     this.byId = new Map();
-    this.queue = Promise.resolve();
+    this.stamp = null;
     this.load();
+  }
+
+  /** 文件被后台进程改过就重新载入；解析失败时保留内存版本，不覆盖、不备份。 */
+  refresh() {
+    let mtimeMs;
+    try {
+      mtimeMs = fs.statSync(this.file).mtimeMs;
+    } catch (err) {
+      return;
+    }
+    if (mtimeMs === this.stamp) return;
+    try {
+      const parsed = JSON.parse(fs.readFileSync(this.file, "utf8"));
+      const items = Array.isArray(parsed) ? parsed : parsed && parsed.items;
+      if (!Array.isArray(items) || !items.every(isValidItem)) throw new Error("invalid title file");
+      this.items = items;
+      this.reindex();
+      this.stamp = mtimeMs;
+    } catch (err) {
+      this.logger.error(`${BRAND.logPrefix} 片库文件此刻无法解析，继续使用内存中的版本`, err);
+    }
   }
 
   load() {
@@ -46,6 +71,7 @@ class TitleRepository {
         if (!Array.isArray(items) || !items.every(isValidItem)) throw new Error("invalid title file");
         this.items = items;
         this.reindex();
+        this.stamp = fs.statSync(this.file).mtimeMs;
         return;
       } catch (err) {
         const backup = `${this.file}.broken-${Date.now()}.json`;
@@ -62,6 +88,7 @@ class TitleRepository {
     this.reindex();
     try {
       fs.writeFileSync(this.file, this.serialize(), "utf8");
+      this.stamp = fs.statSync(this.file).mtimeMs;
     } catch (err) {
       this.logger.error(`${BRAND.logPrefix} 无法创建片库文件，数据只保存在内存中`, err);
     }
@@ -72,77 +99,13 @@ class TitleRepository {
   }
 
   all() {
+    this.refresh();
     return this.items;
   }
 
   get(id) {
+    this.refresh();
     return this.byId.get(String(id || "")) || null;
-  }
-
-  nextId(title, original) {
-    const base = candidateId(title, original);
-    if (!this.byId.has(base)) return base;
-    let index = 2;
-    while (this.byId.has(`${base}-${index}`)) index += 1;
-    return `${base}-${index}`;
-  }
-
-  async create(input) {
-    const now = new Date().toISOString();
-    const item = {
-      ...input,
-      id: this.nextId(input.title, input.original),
-      createdAt: now,
-      updatedAt: now
-    };
-    this.items.push(item);
-    this.byId.set(item.id, item);
-    try {
-      await this.save();
-    } catch (err) {
-      this.items.pop();
-      this.byId.delete(item.id);
-      throw err;
-    }
-    return item;
-  }
-
-  async update(id, input) {
-    const current = this.get(id);
-    if (!current) return null;
-    const index = this.items.indexOf(current);
-    const next = {
-      ...input,
-      id: current.id,
-      createdAt: current.createdAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-    this.items[index] = next;
-    this.byId.set(next.id, next);
-    try {
-      await this.save();
-    } catch (err) {
-      this.items[index] = current;
-      this.byId.set(current.id, current);
-      throw err;
-    }
-    return next;
-  }
-
-  async remove(id) {
-    const current = this.get(id);
-    if (!current) return null;
-    const index = this.items.indexOf(current);
-    this.items.splice(index, 1);
-    this.byId.delete(current.id);
-    try {
-      await this.save();
-    } catch (err) {
-      this.items.splice(index, 0, current);
-      this.byId.set(current.id, current);
-      throw err;
-    }
-    return current;
   }
 
   serialize() {
@@ -151,24 +114,6 @@ class TitleRepository {
       updatedAt: new Date().toISOString(),
       items: this.items
     }, null, 2) + "\n";
-  }
-
-  save() {
-    const body = this.serialize();
-    const run = this.queue.then(() => this.atomicWrite(body));
-    this.queue = run.catch(() => {});
-    return run;
-  }
-
-  async atomicWrite(body) {
-    const temp = `${this.file}.${process.pid}.${Date.now()}.tmp`;
-    try {
-      await fs.promises.writeFile(temp, body, "utf8");
-      await fs.promises.rename(temp, this.file);
-    } catch (err) {
-      await fs.promises.unlink(temp).catch(() => {});
-      throw err;
-    }
   }
 }
 

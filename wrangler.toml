@@ -26,16 +26,14 @@ run_worker_first = [
   "/sitemap.xml",
   "/robots.txt",
   "/api/*",
-  "/go/*",
-  "/admin",
-  "/admin/*"
+  "/go/*"
 ]
 
 [[d1_databases]]
 binding = "DB"
 database_name = "yingtu-db"
-# ⚠️ 占位符，必须替换成 `npx wrangler d1 create yingtu-db` 输出的真实 database_id，否则 deploy 会报错。
-database_id = "00000000-0000-0000-0000-000000000000"
+# 真实 ID：由 `wrangler d1 create yingtu-db` 生成。换账号部署时替换成自己的。
+database_id = "aa313be6-37b1-4111-80c9-58e781fefcb6"
 migrations_dir = "worker/migrations"
 
 # 日志：免费额度内含 Workers Logs，用于排查 5xx。

@@ -64,8 +64,8 @@ if (exists("client/index.html")) {
   add("fail", "缺少 client/index.html");
 }
 
-if (exists("client/admin/index.html")) add("ok", "后台页面存在");
-else add("fail", "缺少 client/admin/index.html");
+if (exists("client/admin/index.html")) add("warn", "client/admin 又出现了", "后台已拆成独立项目 movie-admin", "删掉它，后台在 ../movie-admin 里维护");
+else add("ok", "前台不含后台文件（后台在 ../movie-admin）");
 
 /* ---------- 4. D1 种子文件 ---------- */
 if (exists("worker/seed.sql")) {

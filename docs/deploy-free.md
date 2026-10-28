@@ -18,7 +18,17 @@ npm run preflight
 
 脚本逐项检查：Node 版本、`database_id` 是否还是占位符、`run_worker_first` 是否被改回 `true`、`index.html` 是否有绝对路径、`seed.sql` 是否生成、wrangler 是否登录，并提醒两个必设的密钥。**有 ❌ 就别急着 deploy。**
 
-当前仓库状态（2026-10-27 实测）：Node、白名单、SEO 占位、绝对路径、seed.sql 全部 ✅；阻塞项是「database_id 占位」和「wrangler 未登录」。
+再跑一次生产代码预演（不需要账号，不需要 workerd）：
+
+```bash
+npm run smoke:worker
+```
+
+它用 `wrangler deploy --dry-run` 打出真实部署包，再用 `node:sqlite` 模拟 D1 跑 33 项断言——公开 API、页面外壳、`/go` 跳转、后台登录与增删改、看板、反馈、鉴权边界。**这一步能提前发现 90% 的 deploy 后才发现的问题。**
+
+> 本机若 `wrangler dev` 报 `write EOF` 或 `STATUS_DLL_NOT_FOUND`，是系统缺 VC++ 运行库（`api-ms-win-crt-*`、`vcruntime140.dll`）导致 `workerd.exe` 起不来。装一次 [VC++ 2015-2022 Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe) 即可；不装也不影响 deploy 与 `smoke:worker`（它们不经过 workerd），只影响 `wrangler dev` 和 `d1 --local`。
+
+当前仓库状态（2026-10-27 实测）：Node、白名单、SEO 占位、绝对路径、seed.sql、生产包预演全部 ✅；阻塞项是「database_id 占位」和「wrangler 未登录」。
 
 ## 1. 一次性上线命令
 

@@ -39,12 +39,16 @@ test("页面路由都在 Worker 白名单里（否则拿不到注入的 meta）"
     "/api/bootstrap",
     "/api/search",
     "/api/admin/titles",
-    "/go/hotd/0",
-    "/admin",
-    "/admin/"
+    "/go/hotd/0"
   ];
   const missing = pages.filter((pathname) => !covered(rules, pathname));
   assert.deepEqual(missing, [], `这些路由没进白名单：${missing.join(", ")}`);
+});
+
+test("后台已拆成独立项目，前台不再声明 /admin 路由", () => {
+  const rules = whitelist();
+  assert.equal(covered(rules, "/admin"), false);
+  assert.equal(covered(rules, "/admin/"), false);
 });
 
 test("静态资源不进 Worker（不消耗免费请求额度）", () => {

@@ -291,13 +291,16 @@ export async function loadCatalog(db) {
   };
   let titleRes, offerRes;
   try {
+    // D1 的 batch 只接受 prepared statement —— 不能先 .all()（那会传进一个 Promise）。
+    // 标准写法同时也让两次查询落在同一个事务里。
     [titleRes, offerRes] = await db.batch([
-      db.prepare("SELECT * FROM titles ORDER BY rowid").all(),
-      db.prepare("SELECT * FROM offers ORDER BY title_id, position, id").all()
+      db.prepare("SELECT * FROM titles ORDER BY rowid"),
+      db.prepare("SELECT * FROM offers ORDER BY title_id, position, id")
     ]);
   } catch (err) {
-    // 本地 miniflare（wrangler 3.x dev）的 batch 序列化有缺陷（ZodError），降级为两条独立查询。
-    if (!/ZodError|Failed to parse body/.test(String(err && err.message))) throw err;
+    // 读路径没有原子性需求：任何 batch 异常都降级为两条独立查询，
+    // 不能因为某环境对 batch 的处理不一致就把整站打成 500。
+    console.warn("[yingtu] batch 读取失败，降级为独立查询：", err && err.message);
     [titleRes, offerRes] = await readAll();
   }
   const items = (titleRes.results || []).map(rowToItem);

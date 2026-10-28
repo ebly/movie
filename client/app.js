@@ -763,7 +763,6 @@ function filtersHTML(item) {
 function detailHTML(item, related = []) {
   const verified = item.offers.filter((offerItem) => offerItem.verified).length;
   const length = item.seasons ? `${item.seasons} 季` : item.runtime;
-  const providerCount = new Set(item.offers.map((offerItem) => offerItem.pid)).size;
 
   return `<div class="detail-page">
     <section class="detail-hero">
@@ -828,16 +827,6 @@ function detailHTML(item, related = []) {
           </div>
         </section>` : ""}
       </div>
-
-      <aside class="side-note" aria-label="作品速览">
-        <h3>速览</h3>
-        <div class="side-stat"><span>观看渠道</span><b>${item.offers.length} 个</b></div>
-        <div class="side-stat"><span>已验证可看</span><b class="alive">${verified} 个</b></div>
-        <div class="side-stat"><span>平台覆盖</span><b>${providerCount} 家</b></div>
-        <div class="side-stat"><span>评分</span><b>${item.rating.toFixed(1)}</b></div>
-        <div class="side-stat"><span>类型</span><b>${esc(item.type)}</b></div>
-        <p class="side-hint">点击渠道会跳转到对应平台的搜索页；${BRAND.name}不托管任何影片文件。</p>
-      </aside>
     </div>
   </div>`;
 }
@@ -1031,8 +1020,7 @@ async function renderFavorites(params) {
       ${favs.length
         ? `<div class="list-grid">${favCards}</div>`
         : `<div class="empty">
-            ${ICON_HEART}
-            <h3>片单还是空的</h3>
+            <h3>暂无片单</h3>
             <p>在搜索结果或作品详情页点一下右上角的心形，就会存到这台设备的浏览器里。</p>
             <div class="chips"><a class="chip" href="/search">去找几部看看</a></div>
           </div>`}
@@ -1153,7 +1141,6 @@ document.addEventListener("click", async (event) => {
     if (href && !href.startsWith("#") && !href.startsWith("mailto:")) {
       const url = new URL(href, location.origin);
       const internal = url.origin === location.origin
-        && !url.pathname.startsWith("/admin")
         && !url.pathname.startsWith("/go/")
         && !/\.(html|xml|txt|css|js)$/i.test(url.pathname);
       if (internal) {

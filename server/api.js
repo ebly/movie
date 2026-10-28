@@ -2,9 +2,12 @@
 
 const { HttpError, sendJSON, sendError, readJSON, clientKey, visitorId } = require("./lib/http");
 const { createRateLimiter, cleanText } = require("./feedback");
+const { publicBrand } = require("../shared/brand");
 const BRAND = require("../config/brand.json");
 
 const DISCLAIMER = BRAND.disclaimer;
+// 对外只给白名单字段：brand.json 里的 defaultPassword / cookies / logPrefix 不外发。
+const BRAND_PUBLIC = publicBrand(BRAND);
 
 function methodNotAllowed(res, allow) {
   sendError(res, 405, "method_not_allowed", "不支持的请求方法", { Allow: allow });
@@ -23,7 +26,7 @@ function createApi({ store, feedback, analytics }) {
 
   const index = {
     name: `${BRAND.name} API`,
-    brand: BRAND,
+    brand: BRAND_PUBLIC,
     version: "1.0.0",
     endpoints: [
       { method: "GET", path: "/api/health", description: "健康检查" },
@@ -60,7 +63,7 @@ function createApi({ store, feedback, analytics }) {
     if (path === "/api/bootstrap") {
       if (method !== "GET") return methodNotAllowed(res, "GET");
       return sendJSON(res, 200, {
-        brand: BRAND,
+        brand: BRAND_PUBLIC,
         providers: store.providers,
         hot: store.hot(),
         types: store.types,

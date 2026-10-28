@@ -1,4 +1,5 @@
 node_modules/
+.workbuddy/
 data/titles.json
 data/titles.json.*.tmp
 data/titles.json.broken-*.json

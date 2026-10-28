@@ -59,10 +59,10 @@ describe(`${BRAND.name} 品牌一致性`, () => {
     const read = (file) => fs.readFileSync(path.join(ROOT, file), "utf8");
     assert.match(read("worker/config.js"), /import BRAND from "\.\.\/config\/brand\.json"/);
     assert.match(read("worker/adminAuth.js"), /import BRAND from "\.\.\/config\/brand\.json"/);
-    const serverUsesBrand = ["server/api.js", "server/adminAuth.js", "server/lib/http.js", "server/app.js"]
+    // 管理后台已拆成独立项目 ../movie-admin，这里只校验前台项目内的引用。
+    const serverUsesBrand = ["server/api.js", "server/lib/http.js", "server/app.js", "server/repository.js"]
       .filter((file) => /config\/brand\.json/.test(read(file)));
     assert.equal(serverUsesBrand.length, 4, `Node 侧应全部引用 brand.json，实际：${serverUsesBrand.join(", ")}`);
     assert.match(read("server/lib/http.js"), /BRAND\.cookies\.visitor/);
-    assert.match(read("server/adminAuth.js"), /BRAND\.cookies\.admin/);
   });
 });
