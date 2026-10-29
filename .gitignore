@@ -13,6 +13,6 @@ data/feedback.ndjson
 .wrangler/
 .wr4/
 worker/seed.sql
-# 第三方参考代码，不进本仓库
-pansou-main/
+# PanSou 本地源码入库（已打 sonic v1.15.5 补丁适配 Go 1.27），只排除运行时缓存
+pansou-main/cache/
 client/data/
