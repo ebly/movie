@@ -1,0 +1,12 @@
+# PanSou 运行镜像。二进制由本地交叉编译后放到 deploy/pansou-linux（见 deploy.ps1），
+# 服务器上不需要装 Go，也不用下载大量依赖。
+FROM alpine:3.20
+
+RUN apk add --no-cache ca-certificates tzdata
+
+WORKDIR /app
+COPY deploy/pansou-linux /app/pansou
+RUN chmod +x /app/pansou
+
+EXPOSE 8888
+ENTRYPOINT ["/app/pansou"]

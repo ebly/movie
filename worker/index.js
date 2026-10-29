@@ -24,20 +24,40 @@ import douban from "../shared/douban.js";
 const pansouClients = new WeakMap();
 const doubanClients = new WeakMap();
 const allowQuarkSearch = createRateLimiter({ windowMs: 60_000, max: 30 });
+// 防刷：全站总量 + 跳缓存（reload）次数 + 并发闸门。
+// isolate 内存级近似，扩缩容会重置，真正的第一道防线应放在边缘（Cloudflare/Caddy 速率限制）。
+const allowPanGlobal = createRateLimiter({ windowMs: 60_000, max: 240 });
+const allowPanReload = createRateLimiter({ windowMs: 60_000, max: 5 });
+const PAN_MAX_INFLIGHT = 3;
+let panInflight = 0;
 async function handleQuarkSearch(ctx) {
   if (ctx.request.method !== "GET") return methodNotAllowed(ctx, "GET");
-  if (!allowQuarkSearch(clientKey(ctx.request))) {
+  const ip = clientKey(ctx.request);
+  const reload = ctx.url.searchParams.get("reload") === "1";
+  if (!allowPanGlobal("all")) {
+    return sendError(ctx, 429, "rate_limited", "全站搜索请求过多，请稍后再试。", { "Retry-After": "30" });
+  }
+  if (!allowQuarkSearch(ip)) {
     return sendError(ctx, 429, "rate_limited", "搜索太频繁，请稍后再试。", { "Retry-After": "60" });
+  }
+  if (reload && !allowPanReload(ip)) {
+    return sendError(ctx, 429, "rate_limited", "「重新获取」太频繁，请等一分钟再试。", { "Retry-After": "60" });
+  }
+  if (panInflight >= PAN_MAX_INFLIGHT) {
+    return sendError(ctx, 429, "busy", "当前搜索任务较多，请稍后再试。", { "Retry-After": "5" });
   }
   if (!pansouClients.has(ctx.env)) {
     pansouClients.set(ctx.env, pansou.createPansouClient(pansou.configFromEnv(ctx.env)));
   }
+  panInflight += 1;
   try {
     const result = await pansouClients.get(ctx.env).search(ctx.url.searchParams);
     return sendJSON(ctx, 200, result);
   } catch (err) {
     if (err instanceof pansou.PansouError) return sendError(ctx, err.status, err.code, err.message);
     throw err;
+  } finally {
+    panInflight -= 1;
   }
 }
 

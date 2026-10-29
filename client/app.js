@@ -21,6 +21,7 @@ const state = {
   retry: null,
   byId: new Map(),
   panById: new Map(),
+  panReloadCoolUntil: 0,
   suggest: { timer: 0, items: [], active: -1 },
   suggestController: null
 };
@@ -1011,12 +1012,13 @@ function panPaginationHTML(q, type, data) {  const page = Math.floor(data.offset
 }
 
 function panViewHTML(q, type, body, { loading = false } = {}) {
+  const cooling = state.panReloadCoolUntil > Date.now();
   return `<div class="view pan-view">
     ${headerHTML({ compact: true, query: q })}
     <main class="magazine-page pan-page">
       ${panTabsHTML(q, type)}
       <div class="pan-toolbar">
-        <button class="quiet-btn" type="button" data-pan-reload${!q || loading ? " disabled" : ""}>重新获取</button>
+        <button class="quiet-btn" type="button" data-pan-reload${!q || loading || cooling ? " disabled" : ""}>重新获取</button>
         <span>手动跳过本站短缓存，不刷新上游；不会自动重试或轮询。</span>
       </div>
       ${body}
@@ -1610,6 +1612,9 @@ document.addEventListener("click", async (event) => {
   const reloadBtn = event.target.closest("[data-pan-reload]");
   if (reloadBtn) {
     if (reloadBtn.disabled) return;
+    // 10 秒冷却：reload 会让 PanSou 把全部插件重跑一遍，连点等于自伤。
+    state.panReloadCoolUntil = Date.now() + 10_000;
+    reloadBtn.disabled = true;
     const params = new URLSearchParams(location.search);
     if (location.pathname === "/search") {
       await renderPanResults(params, { reload: true });

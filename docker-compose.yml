@@ -1,0 +1,82 @@
+# 映途生产编排：Caddy(80/443) → Node 前台(4173) → PanSou(8888)
+# 只有 Caddy 映射端口；app 与 pansou 仅 Docker 内网可达，公网扫不到。
+# 用法：docker compose --env-file deploy/.env up -d --build
+name: yingtu
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+      PANSOU_DOMAIN: ${PANSOU_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+      BASIC_AUTH_USER: ${BASIC_AUTH_USER}
+      BASIC_AUTH_HASH: ${BASIC_AUTH_HASH}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      default:
+        aliases:
+          # 让 app 在容器内把 PanSou 域名解析到 Caddy，避免请求绕公网（hairpin）
+          - ${PANSOU_DOMAIN}
+    depends_on:
+      - app
+      - pansou
+
+  app:
+    image: node:22-alpine
+    restart: unless-stopped
+    working_dir: /app
+    command: ["node", "server/index.js"]
+    environment:
+      PORT: "4173"
+      # 容器内必须监听 0.0.0.0，否则 Caddy 连不上
+      HOST: "0.0.0.0"
+      # 让限流按 X-Forwarded-For 里的真实访客 IP 计数，而不是 Caddy 的容器 IP
+      TRUST_PROXY: "1"
+      # shared/pansou.js 只接受 HTTPS 的远程地址，所以走 Caddy 的域名
+      PANSOU_URL: https://${PANSOU_DOMAIN}
+      PANSOU_USERNAME: ${PANSOU_USER}
+      PANSOU_PASSWORD: ${PANSOU_PASS}
+      # 只走插件，跳过不可达的 TG 阶段
+      PANSOU_SRC: "plugin"
+      PANSOU_TIMEOUT_MS: "20000"
+      TZ: Asia/Shanghai
+    volumes:
+      - ./server:/app/server:ro
+      - ./shared:/app/shared:ro
+      - ./client:/app/client:ro
+      - ./config:/app/config:ro
+      - ./data:/app/data
+    depends_on:
+      - pansou
+
+  pansou:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.pansou
+    restart: unless-stopped
+    environment:
+      PORT: "8888"
+      AUTH_ENABLED: "true"
+      AUTH_USERS: ${PANSOU_USER}:${PANSOU_PASS}
+      AUTH_JWT_SECRET: ${PANSOU_JWT_SECRET}
+      AUTH_TOKEN_EXPIRY: "24"
+      ENABLED_PLUGINS: ${ENABLED_PLUGINS}
+      # Go 堆软上限，配合 mem_limit 防止被 OOM killer 直接干掉
+      GOMEMLIMIT: "900MiB"
+      TZ: Asia/Shanghai
+    volumes:
+      - pansou_cache:/app/cache
+    mem_limit: 1g
+
+volumes:
+  caddy_data:
+  caddy_config:
+  pansou_cache:
