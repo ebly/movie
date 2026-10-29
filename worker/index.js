@@ -5,8 +5,7 @@ import { BRAND, PROVIDERS, TYPES, DISCLAIMER } from "./config.js";
 import {
   HttpError,
   createStore,
-  loadCatalog,
-  validateTitle,
+  catalogFromData,
   TIERS,
   QUALITIES,
   MOTIFS,
@@ -19,28 +18,65 @@ import { createAdminAuth, parseCookies, secureFlag } from "./adminAuth.js";
 import meta from "../shared/meta.js";
 import tmdb from "../shared/tmdb.js";
 import brandUtil from "../shared/brand.js";
+import pansou from "../shared/pansou.js";
+import douban from "../shared/douban.js";
+
+const pansouClients = new WeakMap();
+const doubanClients = new WeakMap();
+const allowQuarkSearch = createRateLimiter({ windowMs: 60_000, max: 30 });
+async function handleQuarkSearch(ctx) {
+  if (ctx.request.method !== "GET") return methodNotAllowed(ctx, "GET");
+  if (!allowQuarkSearch(clientKey(ctx.request))) {
+    return sendError(ctx, 429, "rate_limited", "搜索太频繁，请稍后再试。", { "Retry-After": "60" });
+  }
+  if (!pansouClients.has(ctx.env)) {
+    pansouClients.set(ctx.env, pansou.createPansouClient(pansou.configFromEnv(ctx.env)));
+  }
+  try {
+    const result = await pansouClients.get(ctx.env).search(ctx.url.searchParams);
+    return sendJSON(ctx, 200, result);
+  } catch (err) {
+    if (err instanceof pansou.PansouError) return sendError(ctx, err.status, err.code, err.message);
+    throw err;
+  }
+}
+
+
+async function handleDoubanList(ctx) {
+  if (ctx.request.method !== "GET") return methodNotAllowed(ctx, "GET");
+  if (!doubanClients.has(ctx.env)) {
+    doubanClients.set(ctx.env, douban.createDoubanList({ logger: { warn() {} } }));
+  }
+  try {
+    const kind = ctx.url.searchParams.get("kind") || "hot";
+    if (!douban.KIND_IDS.includes(kind)) return sendError(ctx, 422, "invalid_kind", "kind 只支持 hot、latest。");
+    const limit = Number(ctx.url.searchParams.get("limit")) || 6;
+    return sendJSON(ctx, 200, { source: "douban", ...(await doubanClients.get(ctx.env).list({ kind, limit })) });
+  } catch (err) {
+    return sendError(ctx, 502, "douban_unavailable", "豆瓣榜单暂时不可用，请稍后再试。");
+  }
+}
 
 // Workers 没有 process.uptime()，用 isolate 启动时刻近似（health 的 uptime 字段）。
 const BOOT_TIME = Date.now();
 
 /**
- * 目录缓存：D1 免费额度按「读取行数」计量，而每个请求载入整份目录等于
- * 每次两条全表扫描。这里在 isolate 内缓存 20 秒，读取量降到原来的几十分之一。
- * 后台写入后主动失效，保证编辑立即生效。
+ * 目录缓存：目录来自部署时打包进 ASSETS 的 /data/titles.json（只读快照，
+ * 随部署变更），isolate 内缓存 60 秒足够把每次请求的 ASSETS fetch 降到个位数。
  */
-const CATALOG_TTL_MS = 20_000;
+const CATALOG_TTL_MS = 60_000;
 let catalogCache = null;
 
-async function getCatalog(env) {
+async function getCatalog(env, baseUrl) {
   const now = Date.now();
   if (catalogCache && now - catalogCache.at < CATALOG_TTL_MS) return catalogCache.catalog;
-  const catalog = await loadCatalog(env.DB);
+  const res = await env.ASSETS.fetch(new Request(new URL("/data/titles.json", baseUrl)));
+  if (!res.ok) {
+    throw new HttpError(503, "catalog_unavailable", "站内目录未随本次部署打包，请重新 npm run deploy");
+  }
+  const catalog = catalogFromData(await res.json());
   catalogCache = { catalog, at: now };
   return catalog;
-}
-
-function invalidateCatalog() {
-  catalogCache = null;
 }
 
 const API_INDEX = {
@@ -51,6 +87,8 @@ const API_INDEX = {
     { method: "GET", path: "/api/health", description: "健康检查" },
     { method: "GET", path: "/api/bootstrap", description: "平台列表、热门作品、统计与免责声明" },
     { method: "GET", path: "/api/search?q=&type=&limit=", description: "搜索作品（服务端排序与候选匹配）" },
+    { method: "GET", path: "/api/douban/list?kind=&limit=", description: "豆瓣榜单（kind=hot/latest，只有元数据，用于首页）" },
+    { method: "GET", path: "/api/pan/search?q=&type=&offset=&limit=", description: "搜索 PanSou 已接入来源中的网盘公开分享（type=quark/baidu/xunlei/aliyun）" },
     { method: "GET", path: "/api/titles", description: "作品列表（等价于空关键词搜索）" },
     { method: "GET", path: "/api/titles/:id", description: "作品详情与相似作品" },
     { method: "GET", path: "/api/titles/:id/offers?season=&region=&tier=&quality=&verified=1", description: "筛选观看渠道" },
@@ -180,11 +218,12 @@ function record(execution, promise) {
   return task;
 }
 
-/** 每个请求准备一次 D1 数据层（目录一次性载入内存，供打分/筛选/related 复用）。 */
+/** 每个请求准备一次数据层（目录一次性载入内存，供打分/筛选/related 复用）。 */
 async function prepare(ctx) {
-  const catalog = await getCatalog(ctx.env);
-  ctx.store = createStore({ db: ctx.env.DB, providers: PROVIDERS, catalog });
-  ctx.analytics = createAnalytics({ db: ctx.env.DB, providers: PROVIDERS });
+  const catalog = await getCatalog(ctx.env, ctx.url);
+  ctx.store = createStore({ providers: PROVIDERS, catalog });
+  const titleNames = new Map(catalog.items.map((item) => [item.id, item.title]));
+  ctx.analytics = createAnalytics({ db: ctx.env.DB, providers: PROVIDERS, titleNames });
   ctx.feedback = createFeedbackStore({ db: ctx.env.DB });
   ctx.auth = createAdminAuth({ env: ctx.env });
 }
@@ -461,15 +500,8 @@ async function handleAdmin(ctx) {
       return sendJSON(ctx, 200, { total: rows.length, items: rows });
     }
 
-    if (method === "POST") {
-      const body = await readJSON(request, { limit: 256 * 1024 });
-      const input = validateTitle(body, { providers: PROVIDERS });
-      const item = await store.createTitle(input);
-      invalidateCatalog();
-      return sendJSON(ctx, 201, { ok: true, item });
-    }
-
-    return methodNotAllowed(ctx, "GET, POST");
+    // 目录改为部署时打包的只读快照，线上不再支持写入；数据更新走本地后台 + 重新部署。
+    return sendError(ctx, 410, "catalog_readonly", "线上目录为只读快照：请在本地后台编辑 titles.json 后重新部署。");
   }
 
   const match = titlePattern.exec(path);
@@ -487,23 +519,11 @@ async function handleAdmin(ctx) {
       return sendJSON(ctx, 200, { item });
     }
 
-    if (method === "PUT") {
-      const body = await readJSON(request, { limit: 256 * 1024 });
-      const input = validateTitle(body, { providers: PROVIDERS });
-      const item = await store.updateTitle(id, input);
-      if (!item) return sendError(ctx, 404, "title_not_found", "没有找到这部作品");
-      invalidateCatalog();
-      return sendJSON(ctx, 200, { ok: true, item });
+    if (method === "PUT" || method === "DELETE") {
+      return sendError(ctx, 410, "catalog_readonly", "线上目录为只读快照：请在本地后台编辑 titles.json 后重新部署。");
     }
 
-    if (method === "DELETE") {
-      const item = await store.removeTitle(id);
-      if (!item) return sendError(ctx, 404, "title_not_found", "没有找到这部作品");
-      invalidateCatalog();
-      return sendJSON(ctx, 200, { ok: true, id });
-    }
-
-    return methodNotAllowed(ctx, "GET, PUT, DELETE");
+    return methodNotAllowed(ctx, "GET");
   }
 
   if (path === "/api/admin/dashboard") {
@@ -665,6 +685,15 @@ export default {
         }
         await prepare(ctx);
         return await handleGo(ctx, goMatch[1], goMatch[2]);
+      }
+
+      if (path === "/api/douban/list" || path === "/api/douban/list/" || path === "/api/douban/hot" || path === "/api/douban/hot/" || path === "/api/douban/nowplaying" || path === "/api/douban/nowplaying/") {
+        return await handleDoubanList(ctx);
+      }
+
+      // PanSou searches do not read D1 or require the movie catalog.
+      if (path === "/api/pan/search" || path === "/api/pan/search/" || path === "/api/quark/search" || path === "/api/quark/search/") {
+        return await handleQuarkSearch(ctx);
       }
 
       if (path === "/api" || path.startsWith("/api/")) {

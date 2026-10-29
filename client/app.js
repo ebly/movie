@@ -19,7 +19,10 @@ const state = {
   detailController: null,
   searchController: null,
   retry: null,
-  byId: new Map()
+  byId: new Map(),
+  panById: new Map(),
+  suggest: { timer: 0, items: [], active: -1 },
+  suggestController: null
 };
 
 /* ---------------- utils ---------------- */
@@ -95,13 +98,13 @@ function toggleFavorite(item) {
 
 function favButtonHTML(item, extraClass = "") {
   const on = isFavorite(item.id);
-  return `<button class="fav-btn${on ? " on" : ""}${extraClass ? ` ${extraClass}` : ""}" type="button" data-fav="${esc(item.id)}" aria-pressed="${on}" aria-label="${on ? "从片单移除" : "加入片单"}">${ICON_HEART}</button>`;
+  return `<button class="fav-btn${on ? " on" : ""}${extraClass ? ` ${extraClass}` : ""}" type="button" data-fav="${esc(item.id)}" aria-pressed="${on}" aria-label="${on ? "取消收藏" : "加入收藏"}">${ICON_HEART}</button>`;
 }
 
 function favWideHTML(item) {
   const on = isFavorite(item.id);
   return `<button class="fav-wide${on ? " on" : ""}" type="button" data-fav="${esc(item.id)}" aria-pressed="${on}">
-    ${ICON_HEART}<span>${on ? "已加入片单" : "加入片单"}</span>
+    ${ICON_HEART}<span>${on ? "已收藏" : "加入收藏"}</span>
   </button>`;
 }
 
@@ -112,22 +115,19 @@ function syncFavoriteButtons() {
     const on = ids.has(button.dataset.fav);
     button.classList.toggle("on", on);
     button.setAttribute("aria-pressed", String(on));
-    button.setAttribute("aria-label", on ? "从片单移除" : "加入片单");
+    button.setAttribute("aria-label", on ? "取消收藏" : "加入收藏");
     const label = button.querySelector("span");
     if (label && button.classList.contains("fav-wide")) {
-      label.textContent = on ? "已加入片单" : "加入片单";
+      label.textContent = on ? "已收藏" : "加入收藏";
     }
   });
-  $$("[data-fav-count]").forEach((badge) => {
-    badge.textContent = String(ids.size);
-    badge.hidden = ids.size === 0;
-  });
+  syncFavBadge();
 }
 
 function favoritesLinkHTML() {
-  const count = readFavorites().length;
-  return `<a class="fav-link" href="/list" aria-label="我的片单">
-    ${ICON_HEART}<span>片单</span><b data-fav-count${count ? "" : " hidden"}>${count}</b>
+  const count = readFavorites().length + readPanFavs().length;
+  return `<a class="fav-link" href="/list" aria-label="我的收藏">
+    ${ICON_HEART}<span>收藏</span><b data-fav-count${count ? "" : " hidden"}>${count}</b>
   </a>`;
 }
 
@@ -147,12 +147,14 @@ async function copyText(text, message) {
       area.style.cssText = "position:absolute;left:-9999px;top:0";
       document.body.appendChild(area);
       area.select();
-      document.execCommand("copy");
-      document.body.removeChild(area);
+      let copied = false;
+      try { copied = document.execCommand("copy"); }
+      finally { document.body.removeChild(area); }
+      if (!copied) throw new Error("复制未完成");
     }
     showToast(message);
   } catch (err) {
-    showToast("复制失败，请手动复制地址栏");
+    showToast("复制失败，请手动选择并复制页面上的链接或提取码");
   }
 }
 
@@ -213,7 +215,7 @@ function brandHTML() {
     ${BRAND_MARK}
     <span class="brand-copy">
       <span class="brand-word">${BRAND.name}</span>
-      <span class="brand-note">正版观看索引</span>
+      <span class="brand-note">影视索引与公开分享搜索</span>
     </span>
   </a>`;
 }
@@ -228,12 +230,133 @@ function feedbackButtonHTML() {
   return `<button class="quiet-btn" type="button" data-action="feedback">留句话</button>`;
 }
 
-function searchFormHTML(query) {
-  return `<form class="search-field" data-search role="search">
-    ${ICON_SEARCH}
-    <input type="text" name="q" value="${esc(query)}" placeholder="搜索影视剧名称…" autocomplete="off" spellcheck="false" data-search-input aria-label="搜索影视剧名称">
-    <button class="search-submit" type="submit" ${query ? "" : "disabled"}>搜索</button>
-  </form>`;
+function searchURL(query, type = "quark", page = 1) {
+  const params = new URLSearchParams({ source: "quark" });
+  if (query) params.set("q", query);
+  if (type && type !== "quark") params.set("type", type);
+  if (page > 1) params.set("page", String(page));
+  return `/search?${params.toString()}`;
+}
+
+function searchFormHTML(query = "") {
+  const label = "搜索网盘公开分享关键词";
+  return `<div class="search-box" data-search-box>
+    <form class="search-field" data-search data-source="quark" role="search" aria-label="${label}">
+      ${ICON_SEARCH}
+      <input type="text" name="q" value="${esc(query)}" placeholder="${label}…" autocomplete="off" spellcheck="false" required data-search-input aria-label="${label}">
+      <button class="search-submit" type="submit" ${String(query || "").trim() ? "" : "disabled"}>搜索</button>
+    </form>
+    <div class="search-suggest" data-suggest hidden></div>
+  </div>`;
+}
+
+/* ---------------- 搜索联想：站内片名（拼音 / 英文 / 别名），走 /api/search 打分内核 ---------------- */
+
+const SUGGEST_LIMIT = 6;
+const SUGGEST_DEBOUNCE = 150;
+
+function suggestOpen() {
+  const box = document.querySelector("[data-suggest]:not([hidden])");
+  return Boolean(box && state.suggest.items.length);
+}
+
+function closeSuggest() {
+  if (state.suggest.timer) {
+    clearTimeout(state.suggest.timer);
+    state.suggest.timer = 0;
+  }
+  if (state.suggestController) {
+    state.suggestController.abort();
+    state.suggestController = null;
+  }
+  state.suggest.items = [];
+  state.suggest.active = -1;
+  $$("[data-suggest]").forEach((box) => {
+    box.hidden = true;
+    box.innerHTML = "";
+  });
+}
+
+function highlightSuggest() {
+  document.querySelectorAll("[data-suggest]:not([hidden]) .suggest-item").forEach((node) => {
+    const index = node.dataset.suggestIndex !== undefined ? Number(node.dataset.suggestIndex) : -1;
+    node.classList.toggle("on", index === state.suggest.active);
+  });
+}
+
+function moveSuggest(step) {
+  const count = state.suggest.items.length + 1; // + 1 是「在网盘搜」兜底行
+  state.suggest.active = (state.suggest.active + step + count + 1) % (count + 1) - 1;
+  highlightSuggest();
+}
+
+function pickSuggest(input, index) {
+  const items = state.suggest.items;
+  const q = input ? input.value.trim() : "";
+  closeSuggest();
+  if (index >= 0 && index < items.length) {
+    const item = items[index];
+    state.lastQuery = item.title;
+    navigate(`/title/${encodeURIComponent(item.id)}`);
+    return;
+  }
+  // 兜底行或无命中：按原逻辑去网盘搜
+  if (!q) return;
+  state.lastQuery = q;
+  const type = location.pathname === "/search" ? panTypeOf(new URLSearchParams(location.search)) : "quark";
+  navigate(searchURL(q, type));
+}
+
+async function requestSuggest(input) {
+  const q = input.value.trim();
+  if (!q) {
+    closeSuggest();
+    return;
+  }
+  if (state.suggestController) state.suggestController.abort();
+  const controller = new AbortController();
+  state.suggestController = controller;
+  try {
+    const data = await API.search({ q, limit: SUGGEST_LIMIT, signal: controller.signal, suggest: true });
+    if (controller.signal.aborted || !document.contains(input) || input.value.trim() !== q) return;
+    const items = (data.items || []).slice(0, SUGGEST_LIMIT);
+    const box = input.closest(".search-box");
+    const list = box ? box.querySelector("[data-suggest]") : null;
+    if (!list) return;
+    state.suggest.items = items;
+    state.suggest.active = -1;
+    if (!items.length) {
+      // 没有站内命中就不弹下拉，直接回车走网盘搜索
+      list.hidden = true;
+      list.innerHTML = "";
+      return;
+    }
+    const rows = items.map((item, index) => `
+      <button type="button" class="suggest-item" data-suggest-index="${index}">
+        <span class="suggest-title">${esc(item.title)}</span>
+        <span class="suggest-meta">${esc([item.type, item.year].filter(Boolean).join(" · "))}</span>
+      </button>`).join("");
+    list.innerHTML = `${rows}
+      <button type="button" class="suggest-item suggest-web" data-suggest-web>
+        <span class="suggest-title">在网盘搜「${esc(q)}」</span>
+        <span class="suggest-meta">Enter ↵</span>
+      </button>`;
+    list.hidden = false;
+  } catch (err) {
+    if (!controller.signal.aborted) closeSuggest();
+  }
+}
+
+function scheduleSuggest(input) {
+  if (state.suggest.timer) clearTimeout(state.suggest.timer);
+  if (!input.value.trim()) {
+    closeSuggest();
+    return;
+  }
+  state.suggest.timer = setTimeout(() => {
+    state.suggest.timer = 0;
+    requestSuggest(input);
+  }, SUGGEST_DEBOUNCE);
 }
 
 function headerHTML({ compact = false, query = "" } = {}) {
@@ -261,8 +384,7 @@ function headerHTML({ compact = false, query = "" } = {}) {
 function footerHTML() {
   return `<footer class="site-foot"><div class="foot-inner">
     <span class="foot-brand">${BRAND_MARK}${BRAND.name}</span>
-    <span>仅索引正版观看入口 · 不存储任何影片</span>
-    <span>演示数据</span>
+    <span>影视索引与公开分享搜索 · 不存储任何影片或网盘文件</span>
   </div></footer>`;
 }
 
@@ -428,11 +550,6 @@ function providerURL(offerItem, item) {
   return provider.search + encodeURIComponent(term);
 }
 
-function typeFiltersHTML(matchedTypes, activeType) {
-  const types = ["全部", ...(matchedTypes || [])];
-  return types.map((type) => `<button class="fchip type-chip${type === activeType ? " on" : ""}" type="button" data-type-filter="${esc(type)}" aria-pressed="${type === activeType}">${esc(type)}</button>`).join("");
-}
-
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -494,14 +611,17 @@ function leadCardHTML(item) {
   const art = item.art || {};
   const p4 = art.p4 || art.p3 || "#a4684f";
   const genres = (item.genres || []).slice(0, 3).join(" · ");
-  return `<a class="feature-lead" href="/title/${encodeURIComponent(item.id)}">
+  const rating = Number(item.rating) > 0 ? `★ ${Number(item.rating).toFixed(1)} · ` : "";
+  const year = item.year ? `${item.year} · ` : "";
+  const href = item.href || `/title/${encodeURIComponent(item.id)}`;
+  return `<a class="feature-lead" href="${esc(href)}">
     <div class="poster poster-wide${item.poster ? " has-img" : ""}" style="--p1:${art.p1 || "#d9d0c6"};--p2:${art.p2 || "#77776d"};--p3:${art.p3 || "#a4684f"};--p4:${p4};--p-ink:${art.ink || "#2f3230"}">
       <svg class="poster-art" viewBox="0 0 400 600" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><g class="motif">${motifSVG(art)}</g></svg>
       ${posterImgHTML(item)}
       <div class="poster-copy">
         <span class="poster-kicker">${BRAND.name}</span>
         <h3 class="poster-title">${esc(item.title)}</h3>
-        <p class="poster-meta">★ ${Number(item.rating).toFixed(1)} · ${item.year} · ${esc(item.type)}${genres ? ` <span class="poster-genres">· ${esc(genres)}</span>` : ""}</p>
+        <p class="poster-meta">${rating}${year}${esc(item.type)}${genres ? ` <span class="poster-genres">· ${esc(genres)}</span>` : ""}</p>
         <span class="poster-line"></span>
       </div>
     </div>
@@ -510,31 +630,30 @@ function leadCardHTML(item) {
 
 function miniCardHTML(item) {
   const art = item.art || {};
-  return `<a class="mini-card" href="/title/${encodeURIComponent(item.id)}">
+  const href = item.href || `/title/${encodeURIComponent(item.id)}`;
+  const rating = Number(item.rating) > 0 ? ` · ★ ${Number(item.rating).toFixed(1)}` : "";
+  return `<a class="mini-card" href="${esc(href)}">
     <div class="mini-poster${item.poster ? " has-img" : ""}" style="--p1:${art.p1 || "#d9d0c6"};--p2:${art.p2 || "#77776d"};--p3:${art.p3 || "#a4684f"};--p-ink:${art.ink || "#2f3230"}">
       <svg class="poster-art" viewBox="0 0 400 600" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><g class="motif">${motifSVG(art)}</g></svg>
       ${posterImgHTML(item)}
     </div>
     <div class="mini-body">
       <h4 class="mini-title">${esc(item.title)}</h4>
-      <p class="mini-meta">${item.year} · ${esc(item.type)} · ★ ${Number(item.rating).toFixed(1)}</p>
+      <p class="mini-meta">${item.year ? `${item.year} · ` : ""}${esc(item.type)}${rating}</p>
     </div>
-    <span class="mini-cta" aria-hidden="true">→</span>
   </a>`;
 }
 
-function featureGroupHTML(label, items) {
+function featureGroupHTML(items) {
   if (!items || !items.length) return "";
   const [first, ...rest] = items;
-  // 用户要求：两组三部卡之间保留「本周主推 / 口碑之选」标题分割
   return `<div class="feature-group">
-    <p class="group-label">${esc(label)}</p>
     ${leadCardHTML(first)}
     ${rest.length ? `<div class="group-rows">${rest.map(miniCardHTML).join("")}</div>` : ""}
   </div>`;
 }
 
-/* 精选池：两组各 3 部，组内第一部为大横幅卡；主推取热门，口碑按评分补齐，互不重复 */
+/* 精选池：主推取热门，另取 6 个热词做快捷搜索 */
 function homePools() {
   const hot = (BOOT.hot || []).slice();
   const rated = (BOOT.all && BOOT.all.length ? BOOT.all : hot).slice();
@@ -550,161 +669,448 @@ function homePools() {
     }
     return out;
   };
-  return { lead: take(3, hot), picks: take(3, rated), chips: take(6, rated) };
+  return { lead: take(3, hot), chips: take(6, rated) };
+}
+
+/* 豆瓣条目没有本地配色，按片名散列出一组固定色调，避免每次刷新变色 */
+const HOME_PALETTES = [
+  { p1: "#d9d0c6", p2: "#77776d", p3: "#a4684f", p4: "#8d5647", ink: "#2f3230" },
+  { p1: "#cfd6cf", p2: "#6f7a72", p3: "#5f7f6b", p4: "#4c6856", ink: "#25302a" },
+  { p1: "#d6d2e0", p2: "#77728c", p3: "#6f6390", p4: "#584a79", ink: "#2b2838" },
+  { p1: "#ded2c8", p2: "#8a7568", p3: "#b07a56", p4: "#8f5f41", ink: "#332a24" },
+  { p1: "#ccd5da", p2: "#6d7a85", p3: "#5c7a90", p4: "#486275", ink: "#242e35" },
+  { p1: "#dcd4c6", p2: "#847a66", p3: "#9c8452", p4: "#7c6739", ink: "#302b1f" }
+];
+
+function paletteFor(seed) {
+  let hash = 0;
+  for (const ch of String(seed || "")) hash = (hash * 31 + ch.codePointAt(0)) >>> 0;
+  return HOME_PALETTES[hash % HOME_PALETTES.length];
+}
+
+/** 首页右侧只展示豆瓣「最新」榜 10 部；「大家都在搜」另行取热门榜片名。 */
+let latestCache = null;
+// 热门榜片名池：[{ title, hue }]；先显示 10 个，点箭头再追加 10 个
+let hotTitlePool = [];
+const HOT_PAGE = 10;
+
+// 每次进首页换一套起点：黄金角步进保证相邻色相差得开，刷新后组合不同
+const HOT_HUE_START = Math.random() * 360;
+const HUE_STEP = 137.5;
+
+function hotChipHTML(item) {
+  return `<button class="chip hot-chip" type="button" style="--h:${item.hue}" data-q="${esc(item.title)}">${esc(item.title)}</button>`;
+}
+
+/** 「大家都在搜」取热门榜前 20 个片名，分批显示。 */
+function applyHotChips(items) {
+  const box = document.getElementById("home-hot");
+  if (!box || !Array.isArray(items)) return;
+  hotTitlePool = items
+    .map((item) => (item && item.title ? item.title : ""))
+    .filter(Boolean)
+    .slice(0, HOT_PAGE * 2)
+    .map((title, index) => ({
+      title,
+      hue: Math.round((HOT_HUE_START + index * HUE_STEP) % 360)
+    }));
+  if (!hotTitlePool.length) return;
+  const first = hotTitlePool.slice(0, HOT_PAGE);
+  const needsMore = hotTitlePool.length > HOT_PAGE;
+  // 最后一张和箭头绑成一组，换行时不会出现「箭头孤零零一行」
+  const head = needsMore ? first.slice(0, -1) : first;
+  const tail = needsMore
+    ? `<span class="hot-tail">${hotChipHTML(first[first.length - 1])}<button class="hot-more" type="button" data-hot-more aria-label="展开更多热门搜索" title="展开更多">↓</button></span>`
+    : "";
+  box.innerHTML = `<span class="hot-label">大家都在搜</span>${head.map(hotChipHTML).join("")}${tail}`;
+}
+
+/** 展开第二批片名，箭头随之消失。 */
+function expandHotChips() {
+  const box = document.getElementById("home-hot");
+  if (!box) return;
+  const rest = hotTitlePool.slice(HOT_PAGE);
+  const more = box.querySelector("[data-hot-more]");
+  if (more) more.remove();
+  if (rest.length) box.insertAdjacentHTML("beforeend", rest.map(hotChipHTML).join(""));
+}
+
+async function loadLatestList() {
+  const body = document.getElementById("feature-body");
+  if (!body) return;
+  if (latestCache) {
+    body.innerHTML = latestCache;
+    return;
+  }
+  try {
+    const data = await API.doubanList({ kind: "latest", limit: 11 });
+    if (location.pathname !== "/") return;
+    const items = (data.items || []).filter((item) => item && item.title).slice(0, 11);
+    if (items.length < 2) return;
+    const html = featureGroupHTML(items.map((item) => ({
+      ...item,
+      href: searchURL(item.title),
+      art: paletteFor(item.title)
+    })));
+    latestCache = html;
+    const target = document.getElementById("feature-body");
+    if (target) target.innerHTML = html;
+  } catch (err) {
+    // 榜单挂了就用本地热门，不打断首页
+  }
+}
+
+async function loadHotChips() {
+  try {
+    const data = await API.doubanList({ kind: "hot", limit: HOT_PAGE * 2 });
+    if (location.pathname !== "/") return;
+    applyHotChips(data.items || []);
+  } catch (err) {
+    // 热门榜失败就保留本地标签
+  }
 }
 
 function renderHome() {
   setRouteBusy(false);
   document.title = `${BRAND.name} — ${BRAND.slogan}`;
   const pools = homePools();
-  const platformCount = BOOT.stats && BOOT.stats.providers ? BOOT.stats.providers : 12;
-  const titleCount = BOOT.stats && BOOT.stats.titles ? BOOT.stats.titles : null;
 
   app.innerHTML = `<div class="home view">
     ${headerHTML()}
     <main class="home-main">
       <section class="hero-grid">
         <div class="hero-copy">
-          <h1 class="display-title animate d1">今晚想看什么？<br><span class="soft-accent">先弄清楚去哪儿看</span></h1>
+          <h1 class="display-title animate d1">想看什么？<span class="hero-accent">直接搜</span></h1>
           <div class="hero-search animate d2">${searchFormHTML("")}</div>
-          ${pools.chips.length ? `<div class="hot animate d3">
-            <span class="hot-label">大家都在找</span>
+          <div class="hot animate d3" id="home-hot">
+            <span class="hot-label">大家都在搜</span>
             ${pools.chips.map((item) => `<button class="chip" type="button" data-q="${esc(item.title)}">${esc(item.title)}</button>`).join("")}
-          </div>` : ""}
-          <div class="platform-strip animate d3">
-            ${titleCount ? `<span>已收录 <b>${titleCount}</b> 部作品</span>` : ""}
-            <span>覆盖 Netflix · Max · Apple TV+ · Prime Video · Disney+ 等 <b>${platformCount}</b> 个平台</span>
           </div>
         </div>
-        ${pools.lead.length || pools.picks.length ? `<aside class="home-featured animate d4" aria-label="编辑精选">
-          ${featureGroupHTML("本周主推", pools.lead)}
-          ${featureGroupHTML("口碑之选", pools.picks)}
-        </aside>` : ""}
+        <aside class="home-featured animate d4" aria-label="最新电影">
+          <div id="feature-body">${pools.lead.length ? featureGroupHTML(pools.lead) : ""}</div>
+        </aside>
       </section>
     </main>
-    <div class="home-foot">${BRAND.name} · 仅索引正版观看入口，不存储任何影片 · 演示数据</div>
+    <div class="home-foot">${BRAND.name} · 影视条目与网盘公开分享搜索，不存储任何影片或网盘文件</div>
   </div>`;
   updateScrollState();
+  loadLatestList();
+  loadHotChips();
 }
 
-/* ---------------- results ---------------- */
+/* ---------------- 网盘公开分享搜索（PanSou：夸克 / 百度 / 迅雷 / 阿里） ---------------- */
 
-function resultCardHTML(item) {
-  const verified = Number.isFinite(item.verifiedCount)
-    ? item.verifiedCount
-    : (item.offers || []).filter((offerItem) => offerItem.verified).length;
-  const total = Number.isFinite(item.offerCount) ? item.offerCount : (item.offers || []).length;
-  const length = item.seasons ? `${item.seasons} 季` : item.runtime;
-  return `<div class="result-shell">
-    ${favButtonHTML(item)}
-    <a class="result-card" href="/title/${encodeURIComponent(item.id)}">
-    ${posterHTML(item)}
-    <div class="card-body">
-      <h3 class="card-title">${esc(item.title)}</h3>
-      <p class="card-original">${esc(item.original)}</p>
-      <div class="card-meta">
-        <span class="rating"><span class="star">★</span>${Number(item.rating).toFixed(1)}</span>
-        <span class="divider"></span>
-        <span>${item.year}</span>
-        <span>${esc(item.type)}</span>
-        ${length ? `<span>${esc(length)}</span>` : ""}
-      </div>
-      <p class="card-desc">${esc(item.synopsis)}</p>
-      <div class="card-foot">
-        <span class="status ${verified ? "" : "pending"}">${verified ? `${verified} 个渠道已验证` : `${total} 个渠道待确认`}</span>
-        <span class="card-cta">查看渠道 →</span>
-      </div>
-    </div>
-  </a>
-  </div>`;
+const PAN_LIMIT = 30;
+const PAN_TYPES = [
+  { id: "quark", label: "夸克" },
+  { id: "baidu", label: "百度" },
+  { id: "xunlei", label: "迅雷" },
+  { id: "aliyun", label: "阿里" }
+];
+const PAN_TYPE_MAP = new Map(PAN_TYPES.map((item) => [item.id, item]));
+const PAN_URL_RULES = {
+  quark: /^https:\/\/pan\.quark\.cn\/s\/[a-zA-Z0-9]+$/,
+  baidu: /^https:\/\/pan\.baidu\.com\/s\/[a-zA-Z0-9_-]+$/,
+  xunlei: /^https:\/\/pan\.xunlei\.com\/s\/[a-zA-Z0-9_-]+$/,
+  aliyun: /^https:\/\/(?:www\.)?(?:alipan|aliyundrive)\.com\/s\/[a-zA-Z0-9_-]+$/
+};
+
+function panTypeOf(params) {
+  const type = params.get("type") || "quark";
+  return PAN_TYPE_MAP.has(type) ? type : "quark";
 }
 
-async function renderResults(params) {
-  const token = ++state.routeToken;
-  if (state.searchController) state.searchController.abort();
-  const controller = new AbortController();
-  state.searchController = controller;
+function panTypeLabel(type) {
+  const item = PAN_TYPE_MAP.get(type);
+  return item ? item.label : "网盘";
+}
 
-  const q = (params.get("q") || "").trim();
-  const requestedType = params.get("type") || "全部";
-  if (q) state.lastQuery = q;
+/* ---------------- 网盘分享收藏（localStorage，键与影视片单分开） ---------------- */
 
-  setRouteBusy(true);
-  let data;
+const PAN_FAV_KEY = "yingtu-pan-favorites";
+
+function readPanFavs() {
   try {
-    data = await API.search({ q, type: requestedType, signal: controller.signal });
+    const parsed = JSON.parse(localStorage.getItem(PAN_FAV_KEY) || "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((entry) => entry && typeof entry.id === "string" && typeof entry.url === "string")
+      .slice(0, FAV_LIMIT);
   } catch (err) {
-    if (err.name === "AbortError" || token !== state.routeToken) return;
-    renderLoadError(err, () => renderResults(params));
-    return;
+    return [];
   }
-  if (token !== state.routeToken) return;
-  setRouteBusy(false);
+}
 
-  const items = data.items || [];
-  items.forEach((item) => item.id && state.byId.set(item.id, item));
+function panFavRecord(item) {
+  const type = PAN_TYPE_MAP.has(item.type) ? item.type : "quark";
+  return {
+    id: item.id,
+    type,
+    title: item.title || "未命名公开分享",
+    url: item.url,
+    password: item.password || "",
+    sources: Array.isArray(item.sources) ? item.sources.slice(0, 8) : [],
+    datetime: item.datetime || null,
+    savedAt: Date.now()
+  };
+}
 
-  const type = data.type || "全部";
-  const matchedTotal = Number.isFinite(data.matchedTotal) ? data.matchedTotal : items.length;
-  const matchedTypes = data.matchedTypes || [];
-  const suggestions = data.suggestions || [];
-
-  document.title = q ? `${q} — ${BRAND.name}` : `全部作品 — ${BRAND.name}`;
-
-  let subtitle;
-  if (q) {
-    subtitle = matchedTotal > 1
-      ? `关键词「${esc(q)}」匹配多个候选，请选择你要找的作品`
-      : `关键词「${esc(q)}」的匹配结果`;
-  } else {
-    subtitle = "按评分排序 · 所有作品都已整理好观看渠道";
+function writePanFavs(list) {
+  try {
+    localStorage.setItem(PAN_FAV_KEY, JSON.stringify(list.slice(0, FAV_LIMIT)));
+  } catch (err) {
+    showToast("浏览器存储已满，收藏没有保存");
   }
-  if (type !== "全部") subtitle += ` · 已筛选${esc(type)}`;
+  syncPanFavButtons();
+}
 
-  let body;
-  if (!items.length) {
-    body = emptyHTML(q, suggestions);
-  } else {
-    body = `<div class="result-grid">${items.map(resultCardHTML).join("")}</div>`;
-    if (q && matchedTotal < 4 && suggestions.length) {
-      body += `<div class="suggest-line">没找到？试试
-        ${suggestions.map((item) => `<button class="link-chip" type="button" data-q="${esc(item.title)}">${esc(item.title)}</button>`).join("")}
-      </div>`;
-    }
+function isPanFav(id) {
+  return readPanFavs().some((entry) => entry.id === id);
+}
+
+function togglePanFav(item) {
+  const list = readPanFavs();
+  const index = list.findIndex((entry) => entry.id === item.id);
+  if (index >= 0) {
+    list.splice(index, 1);
+    writePanFavs(list);
+    return false;
   }
+  list.unshift(panFavRecord(item));
+  writePanFavs(list);
+  return true;
+}
 
-  app.innerHTML = `<div class="view">
+function panFavButtonHTML(item) {
+  const on = isPanFav(item.id);
+  return `<button class="fav-btn${on ? " on" : ""}" type="button" data-pan-fav="${esc(item.id)}" aria-pressed="${on}" aria-label="${on ? "取消收藏" : "收藏这条分享"}">${ICON_HEART}</button>`;
+}
+
+function syncPanFavButtons() {
+  const ids = new Set(readPanFavs().map((entry) => entry.id));
+  $$("[data-pan-fav]").forEach((button) => {
+    const on = ids.has(button.dataset.panFav);
+    button.classList.toggle("on", on);
+    button.setAttribute("aria-pressed", String(on));
+    button.setAttribute("aria-label", on ? "取消收藏" : "收藏这条分享");
+  });
+  syncFavBadge();
+}
+
+/** 头部「片单」角标：影视收藏 + 网盘分享收藏的合计。 */
+function syncFavBadge() {
+  const total = readFavorites().length + readPanFavs().length;
+  $$("[data-fav-count]").forEach((badge) => {
+    badge.textContent = String(total);
+    badge.hidden = total === 0;
+  });
+}
+
+function safePanURL(value, type) {
+  if (typeof value !== "string") return "";
+  const rule = PAN_URL_RULES[type];
+  // 不做 URL 归一化：端口、参数、片段、空白和相似域名一律拒绝。
+  return rule && rule.test(value) ? value : "";
+}
+
+/** 复制按钮用：链接来自已渲染的卡片，这里再按四类规则整体复核一次。 */
+function safePanAnyURL(value) {
+  return PAN_TYPES.some((item) => safePanURL(value, item.id)) ? value : "";
+}
+
+function panPage(params) {
+  const page = Number(params.get("page") || 1);
+  return Number.isSafeInteger(page) && page > 0
+    && page <= Math.floor(Number.MAX_SAFE_INTEGER / PAN_LIMIT) ? page : 1;
+}
+
+function panTabsHTML(q, type) {
+  return `<nav class="pan-tabs" role="tablist" aria-label="按网盘类型筛选">
+    ${PAN_TYPES.map((item) => {
+      const on = item.id === type;
+      return `<a class="pan-tab${on ? " on" : ""}" role="tab" aria-selected="${on}" href="${esc(searchURL(q, item.id))}">${esc(item.label)}</a>`;
+    }).join("")}
+  </nav>`;
+}
+
+function panCardHTML(item, currentType) {
+  if (!item || typeof item !== "object") return "";
+  const type = PAN_TYPE_MAP.has(item.type) ? item.type : currentType;
+  const url = safePanURL(item.url, type);
+  const password = typeof item.password === "string" ? item.password : "";
+  const sources = Array.isArray(item.sources) ? item.sources.filter((source) => typeof source === "string") : [];
+  const date = typeof item.datetime === "string" ? new Date(item.datetime) : null;
+  const time = date && Number.isFinite(date.getTime())
+    ? `<time datetime="${esc(item.datetime)}" title="${esc(item.datetime)}">${esc(date.toLocaleString("zh-CN", { hour12: false }))}（本地时间）</time>`
+    : "未提供时间";
+  return `<article class="pan-card">
+    ${panFavButtonHTML(item)}
+    <div class="pan-card-head">
+      <h3>${esc(item.title || "未提供标题")}</h3>
+    </div>
+    <div class="pan-meta">
+      <span>来源：${sources.length ? sources.map((source) => `<span class="pan-source">${esc(source)}</span>`).join(" ") : "未提供来源"}</span>
+      <span>来源时间：${time}</span>
+    </div>
+    <p class="pan-url">${url ? esc(url) : "链接格式不符合要求，已禁用打开与复制"}</p>
+    <p class="pan-password">提取码：${password ? `<code>${esc(password)}</code>` : "未提供"}</p>
+    <div class="pan-actions">
+      ${url ? `<a class="chip" href="${esc(url)}" target="_blank" rel="noopener noreferrer nofollow">打开分享 ↗</a>
+        <button class="quiet-btn" type="button" data-pan-copy="link" data-pan-url="${esc(url)}">复制链接</button>
+        ${password ? `<button class="quiet-btn" type="button" data-pan-copy="password" data-pan-url="${esc(url)}" data-pan-password="${esc(password)}">复制提取码</button>` : ""}`
+        : `<span class="pan-invalid">链接与该网盘类型不匹配，已禁用打开与复制</span>`}
+    </div>
+  </article>`;
+}
+
+/** 片单页里的收藏卡片：不带心形，改成显式的「取消收藏」。 */
+function panFavCardHTML(entry) {
+  const url = safePanURL(entry.url, entry.type);
+  const password = typeof entry.password === "string" ? entry.password : "";
+  return `<article class="pan-card pan-fav-card">
+    <div class="pan-card-head">
+      <h3>${esc(entry.title || "未命名公开分享")}</h3>
+    </div>
+    <p class="pan-url">${url ? esc(url) : "链接格式不符合要求，已禁用打开与复制"}</p>
+    <p class="pan-password">提取码：${password ? `<code>${esc(password)}</code>` : "未提供"}</p>
+    <div class="pan-actions">
+      ${url ? `<a class="chip" href="${esc(url)}" target="_blank" rel="noopener noreferrer nofollow">打开分享 ↗</a>
+        <button class="quiet-btn" type="button" data-pan-copy="link" data-pan-url="${esc(url)}">复制链接</button>` : ""}
+      ${password ? `<button class="quiet-btn" type="button" data-pan-copy="password" data-pan-url="${esc(url)}" data-pan-password="${esc(password)}">复制提取码</button>` : ""}
+      <button class="quiet-btn" type="button" data-pan-unfav="${esc(entry.id)}">取消收藏</button>
+    </div>
+  </article>`;
+}
+
+function panPaginationHTML(q, type, data) {  const page = Math.floor(data.offset / data.limit) + 1;
+  const pages = Math.max(1, page, Math.ceil(data.total / data.limit), data.hasMore ? page + 1 : page);
+  const numbers = [...new Set([1, pages, page - 2, page - 1, page, page + 1, page + 2])]
+    .filter((value) => value >= 1 && value <= pages).sort((a, b) => a - b);
+  const link = (value, label, extra = "") => `<a class="pan-page-link${extra}" href="${esc(searchURL(q, type, value))}" aria-label="${esc(label)}">${esc(label)}</a>`;
+  let previous = 0;
+  const numbered = numbers.map((value) => {
+    const gap = previous && value - previous > 1 ? `<span class="pan-page-gap" aria-hidden="true">…</span>` : "";
+    previous = value;
+    return gap + (value === page
+      ? `<span class="pan-page-link on" aria-current="page" aria-label="第 ${page} 页">${page}</span>`
+      : link(value, String(value)));
+  }).join("");
+  return `<nav class="pan-pagination" aria-label="网盘搜索结果分页">
+    <div class="pan-page-links">
+      ${page > 1 ? link(page - 1, "上一页") : `<span class="pan-page-link disabled" aria-disabled="true">上一页</span>`}
+      ${numbered}
+      ${data.hasMore ? link(page + 1, "下一页") : `<span class="pan-page-link disabled" aria-disabled="true">下一页</span>`}
+    </div>
+    <form class="pan-page-jump" data-pan-page-form data-pan-query="${esc(q)}" data-pan-type="${esc(type)}">
+      <label>第 <input type="number" name="page" value="${page}" min="1" max="${pages}" step="1" required aria-label="跳转页码"> / ${pages} 页</label>
+      <button class="quiet-btn" type="submit">跳转</button>
+    </form>
+    <p>每页 ${data.limit} 条 · 页数按当前已返回的结果计算，不代表全部公开来源。</p>
+  </nav>`;
+}
+
+function panViewHTML(q, type, body, { loading = false } = {}) {
+  return `<div class="view pan-view">
     ${headerHTML({ compact: true, query: q })}
-    <main class="magazine-page">
-      <div class="page-heading" aria-live="polite">
-        <h2>${q ? "搜索结果" : "片库总览"} <b>${items.length}</b> 部</h2>
-        <p>${subtitle}</p>
-      </div>
-      <div class="result-toolbar" role="group" aria-label="按类型筛选">
-        ${typeFiltersHTML(matchedTypes, type)}
-        <span class="spacer"></span>
-        <span class="sort-note">${q ? "按相关度" : "按评分"}</span>
+    <main class="magazine-page pan-page">
+      ${panTabsHTML(q, type)}
+      <div class="pan-toolbar">
+        <button class="quiet-btn" type="button" data-pan-reload${!q || loading ? " disabled" : ""}>重新获取</button>
+        <span>手动跳过本站短缓存，不刷新上游；不会自动重试或轮询。</span>
       </div>
       ${body}
     </main>
     ${footerHTML()}
   </div>`;
+}
+
+async function renderPanResults(params, { reload = false } = {}) {
+  const token = ++state.routeToken;
+  if (state.searchController) state.searchController.abort();
+  const controller = new AbortController();
+  state.searchController = controller;
+  state.retry = null;
+  const q = (params.get("q") || "").trim();
+  const type = panTypeOf(params);
+  const page = panPage(params);
+  if (q) state.lastQuery = q;
+  document.title = `${q ? `${q} — ` : ""}网盘资源 — ${BRAND.name}`;
+
+  if (!q) {
+    setRouteBusy(false);
+    app.innerHTML = panViewHTML(q, type, `<div class="empty" role="status">${ICON_EMPTY}<h3>请输入搜索关键词</h3><p>输入名称或其他关键词，再点击搜索。</p></div>`);
+    updateScrollState();
+    return;
+  }
+  setRouteBusy(true);
+  app.innerHTML = panViewHTML(q, type, `<div class="empty" role="status">
+    <div class="soft-loader" aria-hidden="true"><i></i><i></i><i></i></div>
+    <h3>${reload ? "正在重新获取公开分享…" : "正在搜索公开分享…"}</h3>
+  </div>`, { loading: true });
+  updateScrollState();
+
+  let data;
+  try {
+    data = await API.panSearch({ q, type, offset: (page - 1) * PAN_LIMIT, reload, signal: controller.signal });
+  } catch (err) {
+    if (err.name === "AbortError" || controller.signal.aborted || token !== state.routeToken) return;
+    setRouteBusy(false);
+    state.retry = () => renderPanResults(params);
+    const status = err.status ? `HTTP ${err.status}${err.code ? ` · ${err.code}` : ""}` : "";
+    app.innerHTML = panViewHTML(q, type, `<div class="empty" role="alert">
+      ${ICON_EMPTY}<h3>搜索暂未成功</h3>
+      <p>${esc(friendlyError(err))}</p>
+      ${status ? `<p class="pan-error-code">${esc(status)}</p>` : ""}
+      <div class="chips"><button class="chip" type="button" data-retry>重试本页</button>
+        ${page > 1 ? `<a class="chip" href="${esc(searchURL(q, type, page - 1))}">返回上一页</a>` : ""}
+      </div>
+    </div>`);
+    updateScrollState();
+    return;
+  }
+  if (controller.signal.aborted || token !== state.routeToken) return;
+  setRouteBusy(false);
+  const items = data.items;
+  // 收藏按钮只拿到 id，点的时候从这里取完整记录
+  items.forEach((item) => item.id && state.panById.set(item.id, item));
+  const summary = [`${panTypeLabel(type)}结果总数 ${data.total} 条`, `本页 ${items.length} 条`, data.cached ? "本站缓存命中" : "未命中本站缓存"];
+  if (Number.isFinite(data.tookMs)) summary.push(`请求耗时 ${data.tookMs} ms`);
+  summary.push(data.complete === true ? "上游报告来源已完成（未验证内容）" : "上游未提供完成标记，结果可能不完整");
+  const body = `<div class="pan-summary" role="status">${esc(summary.join(" · "))}</div>
+    ${items.length ? `<div class="pan-results">${items.map((item) => panCardHTML(item, type)).join("")}</div>`
+      : `<div class="empty" role="status">${ICON_EMPTY}<h3>${page > 1 ? "当前页没有结果" : `暂未找到${esc(panTypeLabel(type))}公开分享`}</h3>
+        <p>${data.complete === true ? "可换关键词或切换上面的网盘类型，也可以手动重新获取。" : "尚不能断定所有来源都没有结果；可换关键词、切换类型，或手动重新获取。"}</p>
+        ${page > 1 ? `<div class="chips"><a class="chip" href="${esc(searchURL(q, type))}">返回第一页</a></div>` : ""}
+        ${page === 1 ? emptyFallbackHTML() : ""}
+      </div>`}
+    ${panPaginationHTML(q, type, data)}`;
+  app.innerHTML = panViewHTML(q, type, body);
   updateScrollState();
 }
 
-function emptyHTML(q, suggestions = []) {
-  const list = (suggestions.length ? suggestions : BOOT.hot || []).slice(0, 4);
-  return `<div class="empty">
-    ${ICON_EMPTY}
-    <h3>${q ? `没有找到「${esc(q)}」` : "这个分类还没有作品"}</h3>
-    <p>${q ? "换个片名，或者试试英文原名。" : "试试去掉筛选条件。"}</p>
-    <div class="chips">
-      ${list.map((item) => `<button class="chip" type="button" data-q="${esc(item.title)}">${esc(item.title)}</button>`).join("")}
-    </div>
-  </div>`;
-}
-
 /* ---------------- detail ---------------- */
+
+/* 空搜索兜底：站内片库按评分推几部，boot 失败就退回热门搜索词 */
+function emptyFallbackHTML() {
+  const pool = (BOOT.all && BOOT.all.length ? [...BOOT.all] : [])
+    .sort((a, b) => (b.rating || 0) - (a.rating || 0))
+    .slice(0, 5);
+  if (pool.length) {
+    return `<div class="empty-fallback">
+      <span class="empty-fallback-label">不如试试站内评分最高的</span>
+      <div class="chips">${pool.map((item) => `<a class="chip" href="/title/${encodeURIComponent(item.id)}">${esc(item.title)}</a>`).join("")}</div>
+    </div>`;
+  }
+  const hot = (BOOT.hot || []).filter((item) => item && item.title).slice(0, 5);
+  if (hot.length) {
+    return `<div class="empty-fallback">
+      <span class="empty-fallback-label">大家都在搜</span>
+      <div class="chips">${hot.map((item) => `<a class="chip" href="${esc(searchURL(item.title))}">${esc(item.title)}</a>`).join("")}</div>
+    </div>`;
+  }
+  return "";
+}
 
 function loadingHTML() {
   return `<div class="loading">
@@ -783,9 +1189,10 @@ function detailHTML(item, related = []) {
           <button class="quiet-btn" type="button" data-share="${esc(item.id)}">分享</button>
         </div>
         <div class="external-links">
-          <a href="https://search.douban.com/movie/subject_search?search_text=${encodeURIComponent(item.title)}" target="_blank" rel="noopener noreferrer">豆瓣</a>
-          <a href="https://www.imdb.com/find/?q=${encodeURIComponent(item.original)}" target="_blank" rel="noopener noreferrer">IMDb</a>
-          <a href="https://www.themoviedb.org/search?query=${encodeURIComponent(item.original)}" target="_blank" rel="noopener noreferrer">TMDB</a>
+          <a href="https://search.douban.com/movie/subject_search?search_text=${encodeURIComponent(item.title)}" target="_blank" rel="noopener noreferrer nofollow">豆瓣</a>
+          <a href="https://www.imdb.com/find/?q=${encodeURIComponent(item.original)}" target="_blank" rel="noopener noreferrer nofollow">IMDb</a>
+          <a href="https://www.themoviedb.org/search?query=${encodeURIComponent(item.original)}" target="_blank" rel="noopener noreferrer nofollow">TMDB</a>
+          <a href="${esc(searchURL(item.title))}">搜索网盘公开分享 →</a>
         </div>
         <p class="dh-synopsis">${esc(item.synopsis)}</p>
         <div class="tags">${item.genres.map((genre) => `<span class="tag">${esc(genre)}</span>`).join("")}</div>
@@ -839,7 +1246,7 @@ function offerHTML(offerItem, item) {
     fg: "#fff"
   };
   const season = offerItem.season ? `第 ${parseInt(offerItem.season.slice(1), 10)} 季` : "";
-  return `<a class="offer" href="${esc(offerItem.clickUrl || providerURL(offerItem, item))}" target="_blank" rel="noopener noreferrer">
+  return `<a class="offer" href="${esc(offerItem.clickUrl || providerURL(offerItem, item))}" target="_blank" rel="noopener noreferrer nofollow">
     <span class="provider-logo" style="--pc:${provider.color};--pf:${provider.fg}">${esc(provider.short)}</span>
     <span class="offer-main">
       <span class="offer-title">${esc(provider.name)}<span class="sep">·</span><span class="tier">${esc(offerItem.tier)}</span>
@@ -984,8 +1391,10 @@ async function renderFavorites(params) {
     .filter(Boolean)
     .slice(0, 60);
   const favs = readFavorites();
+  const panFavs = readPanFavs();
+  const totalFavs = favs.length + panFavs.length;
 
-  document.title = `我的片单 — ${BRAND.name}`;
+  document.title = `我的收藏 — ${BRAND.name}`;
   setRouteBusy(true);
 
   let sharedItems = [];
@@ -1008,21 +1417,32 @@ async function renderFavorites(params) {
       <div class="list-head">
         <div>
           <p class="list-kicker">只保存在这台设备的浏览器里</p>
-          <h1 class="list-title">我的片单</h1>
-          <p class="list-sub">已收藏 <b>${favs.length}</b> 部${favs.length ? " · 换浏览器或清缓存会丢失，分享链接可以带走" : ""}</p>
+          <h1 class="list-title">我的收藏</h1>
+          <p class="list-sub">共 <b>${totalFavs}</b> 项${favs.length ? ` · 作品 <b>${favs.length}</b> 部` : ""}${panFavs.length ? ` · 网盘分享 <b>${panFavs.length}</b> 条` : ""}${totalFavs ? " · 换浏览器或清缓存会丢失" : ""}</p>
         </div>
         ${favs.length ? `<div class="list-actions">
           <button class="quiet-btn" type="button" data-copy-list>复制分享链接</button>
-          <button class="quiet-btn" type="button" data-clear-favs>清空</button>
+          <button class="quiet-btn" type="button" data-clear-favs>清空作品</button>
         </div>` : ""}
       </div>
 
-      ${favs.length
-        ? `<div class="list-grid">${favCards}</div>`
-        : `<div class="empty">
-            <h3>暂无片单</h3>
-            <p>在搜索结果或作品详情页点一下右上角的心形，就会存到这台设备的浏览器里。</p>
-            <div class="chips"><a class="chip" href="/search">去找几部看看</a></div>
+      ${panFavs.length ? `<section class="shared-block pan-fav-block">
+        <div class="shared-head">
+          <div>
+            <h2>网盘分享收藏</h2>
+            <p class="sub">共 <b>${panFavs.length}</b> 条 · 链接与提取码只存在这台设备</p>
+          </div>
+          <button class="quiet-btn" type="button" data-clear-pan-favs>清空分享</button>
+        </div>
+        <div class="pan-results">${panFavs.map(panFavCardHTML).join("")}</div>
+      </section>` : ""}
+
+      ${favs.length ? `<div class="list-grid">${favCards}</div>` : ""}
+
+      ${totalFavs ? "" : `<div class="empty">
+            <h3>还没有收藏</h3>
+            <p>搜索结果卡片右上角有个心形，点一下就会存到这台设备的浏览器里；再点一次取消。</p>
+            <div class="chips"><a class="chip" href="/">去看看首页推荐</a></div>
           </div>`}
 
       ${sharedItems.length ? `<section class="shared-block">
@@ -1063,9 +1483,18 @@ function renderNotFound(id) {
 function updateScrollState() {
   const head = document.querySelector(".sub-head");
   if (head) head.classList.toggle("is-scrolled", window.scrollY > 8);
+  const backTop = document.getElementById("back-top");
+  if (backTop) backTop.hidden = window.scrollY < 480;
 }
 
 async function route() {
+  state.routeToken += 1;
+  if (state.detailController) state.detailController.abort();
+  if (state.searchController) state.searchController.abort();
+  state.retry = null;
+  state.current = null;
+  state.filters = null;
+  setRouteBusy(false);
   const pathname = location.pathname.replace(/\/+$/, "") || "/";
   const params = new URLSearchParams(location.search);
 
@@ -1079,25 +1508,17 @@ async function route() {
     }
     await renderDetail(id, params.get("q") || state.lastQuery);
   } else if (pathname === "/search") {
-    const current = location.pathname + location.search;
-    await renderResults(params);
-    if (location.pathname + location.search === current) window.scrollTo(0, 0);
+    const token = state.routeToken + 1;
+    await renderPanResults(params);
+    if (token === state.routeToken) window.scrollTo(0, 0);
   } else if (pathname === "/list") {
-    state.routeToken += 1;
-    if (state.detailController) state.detailController.abort();
-    if (state.searchController) state.searchController.abort();
+    const token = state.routeToken + 1;
     await renderFavorites(params);
-    window.scrollTo(0, 0);
+    if (token === state.routeToken) window.scrollTo(0, 0);
   } else if (pathname === "/") {
-    state.routeToken += 1;
-    if (state.detailController) state.detailController.abort();
-    if (state.searchController) state.searchController.abort();
     renderHome();
     window.scrollTo(0, 0);
   } else {
-    state.routeToken += 1;
-    if (state.detailController) state.detailController.abort();
-    if (state.searchController) state.searchController.abort();
     renderNotFound(pathname);
   }
 }
@@ -1151,6 +1572,29 @@ document.addEventListener("click", async (event) => {
     }
   }
 
+  // 搜索联想：点选项直达详情，点兜底行走网盘搜索
+  const sugItem = event.target.closest("[data-suggest-index], [data-suggest-web]");
+  if (sugItem) {
+    event.preventDefault();
+    const box = sugItem.closest(".search-box");
+    const input = box ? box.querySelector("[data-search-input]") : null;
+    const index = sugItem.dataset.suggestIndex !== undefined
+      ? Number(sugItem.dataset.suggestIndex)
+      : state.suggest.items.length;
+    pickSuggest(input, index);
+    return;
+  }
+
+  // 点击联想下拉以外的地方就收起
+  if (state.suggest.items.length && !event.target.closest("[data-search-box]")) closeSuggest();
+
+  // 返回顶部（按钮常驻 DOM，滚动超过一屏才出现）
+  const backTop = event.target.closest("#back-top");
+  if (backTop) {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    return;
+  }
+
   const action = event.target.closest("[data-action]");
   if (action) {
     const kind = action.dataset.action;
@@ -1163,6 +1607,50 @@ document.addEventListener("click", async (event) => {
     }
   }
 
+  const reloadBtn = event.target.closest("[data-pan-reload]");
+  if (reloadBtn) {
+    if (reloadBtn.disabled) return;
+    const params = new URLSearchParams(location.search);
+    if (location.pathname === "/search") {
+      await renderPanResults(params, { reload: true });
+    }
+    return;
+  }
+
+  const panFavBtn = event.target.closest("[data-pan-fav]");
+  if (panFavBtn) {
+    event.preventDefault();
+    event.stopPropagation();
+    const item = state.panById.get(panFavBtn.dataset.panFav);
+    if (!item) { showToast("这条分享的信息已失效，请重新搜索"); return; }
+    const on = togglePanFav(item);
+    showToast(on ? `已收藏 · ${item.title || "这条分享"}` : "已取消收藏");
+    if (location.pathname === "/list") await renderFavorites(new URLSearchParams(location.search));
+    return;
+  }
+
+  const panUnfavBtn = event.target.closest("[data-pan-unfav]");
+  if (panUnfavBtn) {
+    const id = panUnfavBtn.dataset.panUnfav;
+    if (isPanFav(id)) togglePanFav({ id });
+    showToast("已取消收藏");
+    await renderFavorites(new URLSearchParams(location.search));
+    return;
+  }
+
+  const panCopyBtn = event.target.closest("[data-pan-copy]");
+  if (panCopyBtn) {
+    const url = safePanAnyURL(panCopyBtn.dataset.panUrl);
+    if (!url) { showToast("链接格式不符合要求，不能复制"); return; }
+    const password = panCopyBtn.dataset.panPassword;
+    if (panCopyBtn.dataset.panCopy === "password") {
+      if (password) await copyText(password, "提取码已复制");
+    } else {
+      await copyText(url, "分享链接已复制");
+    }
+    return;
+  }
+
   const favBtn = event.target.closest("[data-fav]");
   if (favBtn) {
     event.preventDefault();
@@ -1170,7 +1658,7 @@ document.addEventListener("click", async (event) => {
     const id = favBtn.dataset.fav;
     const item = state.byId.get(id) || { id, title: id };
     const added = toggleFavorite(item);
-    showToast(added ? `已加入片单 · ${item.title || id}` : "已从片单移除");
+    showToast(added ? `已收藏 · ${item.title || id}` : "已取消收藏");
     if (location.pathname === "/list") await renderFavorites(new URLSearchParams(location.search));
     return;
   }
@@ -1191,10 +1679,21 @@ document.addEventListener("click", async (event) => {
   if (clearBtn) {
     const count = readFavorites().length;
     if (!count) return;
-    if (!window.confirm(`确定清空 ${count} 部收藏吗？清空后只能用分享链接找回。`)) return;
+    if (!window.confirm(`确定清空 ${count} 部作品收藏吗？清空后只能用分享链接找回。`)) return;
     writeFavorites([]);
     await renderFavorites(new URLSearchParams(location.search));
-    showToast("片单已清空");
+    showToast("作品收藏已清空");
+    return;
+  }
+
+  const clearPanBtn = event.target.closest("[data-clear-pan-favs]");
+  if (clearPanBtn) {
+    const count = readPanFavs().length;
+    if (!count) return;
+    if (!window.confirm(`确定清空 ${count} 条网盘分享收藏吗？链接与提取码将一并删除。`)) return;
+    writePanFavs([]);
+    await renderFavorites(new URLSearchParams(location.search));
+    showToast("分享收藏已清空");
     return;
   }
 
@@ -1239,17 +1738,9 @@ document.addEventListener("click", async (event) => {
     return;
   }
 
-  const typeChip = event.target.closest(".type-chip");
-  if (typeChip) {
-    const type = typeChip.dataset.typeFilter;
-    const params = new URLSearchParams(location.search);
-    if (type === "全部") params.delete("type");
-    else params.set("type", type);
-    const next = `/search${params.toString() ? `?${params.toString()}` : ""}`;
-    history.replaceState(null, "", next);
-    const y = window.scrollY;
-    await renderResults(params);
-    if (location.pathname === "/search") window.scrollTo(0, y);
+  const hotMore = event.target.closest("[data-hot-more]");
+  if (hotMore) {
+    expandHotChips();
     return;
   }
 
@@ -1257,18 +1748,32 @@ document.addEventListener("click", async (event) => {
   if (qChip) {
     const q = qChip.dataset.q;
     state.lastQuery = q;
-    navigate(`/search?q=${encodeURIComponent(q)}`);
+    navigate(searchURL(q));
   }
 });
 
 document.addEventListener("submit", (event) => {
+  const pageForm = event.target.closest("form[data-pan-page-form]");
+  if (pageForm) {
+    event.preventDefault();
+    if (!pageForm.reportValidity()) return;
+    const input = pageForm.elements.page;
+    const page = Number(input.value);
+    if (!Number.isSafeInteger(page) || page < 1 || page > Number(input.max)) return;
+    navigate(searchURL(pageForm.dataset.panQuery, pageForm.dataset.panType || "quark", page));
+    return;
+  }
   const form = event.target.closest("form[data-search]");
   if (!form) return;
   event.preventDefault();
+  closeSuggest();
   const input = form.querySelector("[data-search-input]");
   const q = (input ? input.value : "").trim();
+  if (!q) return;
   state.lastQuery = q;
-  navigate(q ? `/search?q=${encodeURIComponent(q)}` : "/search");
+  // 在结果页再次搜索时保留当前选中的网盘类型，回到首页则默认夸克。
+  const type = location.pathname === "/search" ? panTypeOf(new URLSearchParams(location.search)) : "quark";
+  navigate(searchURL(q, type));
 });
 
 document.addEventListener("input", (event) => {
@@ -1276,6 +1781,7 @@ document.addEventListener("input", (event) => {
   const form = event.target.closest("form");
   const button = form ? form.querySelector('button[type="submit"]') : null;
   if (button) button.disabled = !event.target.value.trim();
+  scheduleSuggest(event.target);
 });
 
 document.addEventListener("change", (event) => {
@@ -1290,6 +1796,26 @@ window.addEventListener("scroll", updateScrollState, { passive: true });
 document.addEventListener("keydown", (event) => {
   const target = event.target;
   const typing = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+
+  // 联想下拉键盘导航：↑↓ 选择，Enter 确认，Esc 收起
+  const searchInput = target && target.matches && target.matches("[data-search-input]") ? target : null;
+  if (searchInput && suggestOpen()) {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      moveSuggest(event.key === "ArrowDown" ? 1 : -1);
+      return;
+    }
+    if (event.key === "Enter" && state.suggest.active >= 0) {
+      event.preventDefault();
+      pickSuggest(searchInput, state.suggest.active);
+      return;
+    }
+  }
+  if (event.key === "Escape" && suggestOpen()) {
+    closeSuggest();
+    return;
+  }
+
   if (event.key === "/" && !typing && !event.metaKey && !event.ctrlKey && !event.altKey) {
     const input = document.querySelector("[data-search-input]");
     if (input) {
@@ -1374,10 +1900,17 @@ document.addEventListener("error", (event) => {
 
 async function init() {
   initTheme();
+  if (!booted) {
+    window.addEventListener("popstate", route);
+    booted = true;
+  }
+  adoptLegacyHash();
+  const token = state.routeToken;
+  // 搜索页只依赖 PanSou，不依赖影视片库 / D1 是否可用。
+  if (location.pathname.replace(/\/+$/, "") === "/search") route();
   try {
     const boot = await API.bootstrap();
     if (boot.brand) BRAND = Object.assign(BRAND, boot.brand);
-    document.title = `${BRAND.name} — ${BRAND.slogan}`;
     PROVIDERS = boot.providers || {};
     BOOT = boot;
     try {
@@ -1386,20 +1919,15 @@ async function init() {
     } catch (err) {
       BOOT.all = boot.hot || [];
     }
-    if (!booted) {
-      window.addEventListener("popstate", route);
-      booted = true;
-    }
-    adoptLegacyHash();
-    await route();
+    if (token === state.routeToken) await route();
   } catch (err) {
-    renderBootError(err);
+    if (token === state.routeToken) renderBootError(err);
   }
 }
 
 const initialQuery = new URLSearchParams(location.search).get("q");
 if (initialQuery && location.pathname === "/") {
-  history.replaceState(null, "", `/search?q=${encodeURIComponent(initialQuery)}`);
+  history.replaceState(null, "", searchURL(initialQuery));
 }
 
 init();

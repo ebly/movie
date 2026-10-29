@@ -64,7 +64,7 @@ describe("页面外壳与 SEO", () => {
     assert.match(search.body, /content="noindex,follow"/);
 
     const list = await html("/list");
-    assert.match(list.body, /<title>我的片单 — /);
+    assert.match(list.body, /<title>我的收藏 — /);
 
     const home = await html("/");
     assert.equal(home.status, 200);

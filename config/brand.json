@@ -2,8 +2,8 @@
   "name": "映途",
   "latin": "Yingtu",
   "slug": "yingtu",
-  "tagline": "正版观看渠道索引",
-  "slogan": "找到正版影视的观看去处",
+  "tagline": "影视索引与公开分享搜索",
+  "slogan": "查找影视作品与公开分享",
   "apiName": "yingtu-api",
   "logPrefix": "[yingtu]",
   "cookies": {
@@ -11,5 +11,5 @@
     "visitor": "yt_vid"
   },
   "defaultPassword": "yingtu-admin",
-  "disclaimer": "映途仅聚合正版流媒体平台的观看信息，不存储影片，也不提供网盘或盗版链接。当前片库、价格与可看状态均为演示数据。"
+  "disclaimer": "映途提供影视作品索引、平台观看信息及 PanSou 公开分享搜索，不存储影片。分享搜索仅覆盖已接入公开来源，不代表夸克全量数据，不保证链接有效或内容已获授权。请尊重版权；本地片库、价格与平台可看状态为演示数据。"
 }

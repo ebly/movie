@@ -3,7 +3,7 @@
 // 与 Node 版的差异（受 events 表结构限制）：
 // 1. 匿名访客使用 events.visitor_id 列（来自 yt_vid Cookie），与 Node 版一致：不存 IP/UA；
 // 2. 表没有 total 列，search 事件借用 offer_index 存「结果总数」（search 行不存在渠道下标语义），用于 zeroSearches / zeroCount / zeroRate；
-// 3. 表没有 title / provider 列，看板里按 title_id 关联 titles 表、按 pid 关联 PROVIDERS 配置还原名称（作品被删除后回退显示 id）；
+// 3. 表没有 title / provider 列，看板里用目录快照（titles.json）按 title_id 还原名称、按 pid 关联 PROVIDERS 配置（作品下架后回退显示 id）；
 // 4. 按日分桶使用 UTC 日期（Node 版用服务器本地时区）。
 
 import { PROVIDERS } from "./config.js";
@@ -67,7 +67,7 @@ function topEntries(map, limit) {
   return [...map.values()].sort((a, b) => b.count - a.count || String(b.lastAt).localeCompare(String(a.lastAt))).slice(0, limit);
 }
 
-export function createAnalytics({ db, providers = PROVIDERS }) {
+export function createAnalytics({ db, providers = PROVIDERS, titleNames = new Map() }) {
   async function add(kind, { q = "", titleId = null, offerIndex = null, pid = null, visitorId = null } = {}) {
     await db.prepare(
       "INSERT INTO events (kind, q, title_id, offer_index, pid, visitor_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
@@ -103,9 +103,8 @@ export function createAnalytics({ db, providers = PROVIDERS }) {
       "SELECT kind, q, title_id, offer_index, pid, visitor_id, created_at FROM events WHERE created_at >= ? AND created_at <= ? ORDER BY id"
     ).bind(previousStart.toISOString(), now.toISOString()).all();
 
-    // title_id -> 中文标题（用于 topTitles / recent 的展示名）。
-    const titleRows = await db.prepare("SELECT id, title FROM titles").all();
-    const titleNames = new Map((titleRows.results || []).map((row) => [row.id, row.title]));
+    // title_id -> 中文标题（用于 topTitles / recent 的展示名），来自目录快照（内存 Map）。
+    const titleNamesMap = titleNames instanceof Map ? titleNames : new Map(Object.entries(titleNames || {}));
 
     const events = [];
     (results || []).forEach((row) => {
@@ -117,7 +116,7 @@ export function createAnalytics({ db, providers = PROVIDERS }) {
         query: row.q || "",
         total: row.kind === "search" ? Number(row.offer_index) || 0 : 0,
         titleId: row.title_id || "",
-        title: (row.title_id && titleNames.get(row.title_id)) || row.title_id || "",
+        title: (row.title_id && titleNamesMap.get(row.title_id)) || row.title_id || "",
         providerId: row.pid || "",
         provider: (providers[row.pid] || {}).name || row.pid || "",
         visitorId: row.visitor_id || null

@@ -182,11 +182,10 @@ for (const file of fs.readdirSync(migrationsDir).sort()) {
   if (!file.endsWith(".sql")) continue;
   db.exec(fs.readFileSync(path.join(migrationsDir, file), "utf8"));
 }
-const seedPath = path.join(ROOT, "worker", "seed.sql");
-if (fs.existsSync(seedPath)) db.exec(fs.readFileSync(seedPath, "utf8"));
+// 目录（titles/offers）已在 0003 迁移中下线：数据来自部署打包的 client/data/titles.json，
+// D1 只保留 feedback / events / meta。
 
-console.log("建库完成：", db.prepare("SELECT COUNT(*) AS c FROM titles").get().c, "部作品 /",
-  db.prepare("SELECT COUNT(*) AS c FROM offers").get().c, "条渠道");
+console.log("建库完成：D1 仅存统计与反馈表；目录走 ASSETS 快照");
 
 /* ---------------- 起 Worker ---------------- */
 
@@ -306,66 +305,39 @@ let cookie = "";
   cookie = setCookie.split(";")[0];
   check("正确密码登录", good.status === 200 && cookie.includes("yt_admin="), cookie.slice(0, 24));
 }
+const catalogSnapshot = JSON.parse(fs.readFileSync(path.join(ROOT, "client", "data", "titles.json"), "utf8"));
+const SNAPSHOT_COUNT = catalogSnapshot.items.length;
+
 {
   const { response, body } = await hitJSON("/api/admin/titles", { headers: { Cookie: cookie } });
-  check("后台片库列表", response.status === 200 && body.total === 16, `${body && body.total} 部`);
+  check("后台片库列表（来自 titles.json 快照）", response.status === 200 && body.total === SNAPSHOT_COUNT, `${body && body.total} 部`);
 }
 
-const NEW_TITLE = {
-  title: "预演验证片",
-  original: "Smoke Test Title",
-  year: 2026,
-  type: "电影",
-  rating: 8.1,
-  genres: ["测试"],
-  synopsis: "只在预演里存在的作品。",
-  hot: true,
-  art: { p1: "#e7dfcf", p2: "#b8aaa0", p3: "#8c3327", ink: "#1b2422", motif: "orbit" },
-  offers: [{ pid: "netflix", tier: "订阅", quality: ["4K"], price: "含在订阅", verified: true }]
-};
-
 {
-  const { response, body } = await hitJSON("/api/admin/titles", {
+  // 线上目录是只读快照：任何写入都应返回 410，而不是假装成功。
+  const created = await hitJSON("/api/admin/titles", {
     method: "POST",
     headers: { "Content-Type": "application/json", Cookie: cookie, Origin: ORIGIN },
-    body: JSON.stringify(NEW_TITLE)
+    body: JSON.stringify({ title: "预演验证片", type: "电影", offers: [] })
   });
-  check("后台新增作品", response.status === 201 && body.item && body.item.id === "smoke-test-title", body.item && body.item.id);
+  check("线上目录拒绝新增（410）", created.response.status === 410 && created.body?.error?.code === "catalog_readonly",
+    `status=${created.response.status}`);
 
-  const dbRow = db.prepare("SELECT COUNT(*) AS c FROM titles WHERE id = ?").get("smoke-test-title");
-  check("新增写入 D1 titles 表", dbRow.c === 1);
-  const offerRow = db.prepare("SELECT COUNT(*) AS c FROM offers WHERE title_id = ?").get("smoke-test-title");
-  check("新增写入 D1 offers 表", offerRow.c === 1);
-}
-{
-  const { body } = await hitJSON("/api/search?q=" + encodeURIComponent("预演验证片"));
-  check("写入后前台立即可搜到（catalog 缓存已失效）", body.total >= 1 && body.items[0].id === "smoke-test-title");
-}
-{
-  const { response } = await hitJSON("/api/admin/titles/smoke-test-title", {
+  const updated = await hitJSON("/api/admin/titles/hotd", {
     method: "PUT",
     headers: { "Content-Type": "application/json", Cookie: cookie, Origin: ORIGIN },
-    body: JSON.stringify({ ...NEW_TITLE, title: "预演验证片 改", rating: 9.4 })
+    body: JSON.stringify({ title: "改", type: "电影", offers: [] })
   });
-  check("后台编辑作品", response.status === 200);
-  const row = db.prepare("SELECT title, rating FROM titles WHERE id = ?").get("smoke-test-title");
-  check("编辑落库", row && row.title === "预演验证片 改" && row.rating === 9.4);
-}
-{
-  const badPoster = await hitJSON("/api/admin/titles/smoke-test-title", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json", Cookie: cookie, Origin: ORIGIN },
-    body: JSON.stringify({ ...NEW_TITLE, poster: "http://a.com/x.jpg" })
-  });
-  check("非法海报被拒", badPoster.response.status === 422);
+  check("线上目录拒绝编辑（410）", updated.response.status === 410, `status=${updated.response.status}`);
 
-  const removed = await hitJSON("/api/admin/titles/smoke-test-title", {
+  const removed = await hitJSON("/api/admin/titles/hotd", {
     method: "DELETE",
     headers: { Cookie: cookie, Origin: ORIGIN }
   });
-  check("后台删除作品", removed.response.status === 200);
-  const left = db.prepare("SELECT COUNT(*) AS c FROM titles WHERE id = ?").get("smoke-test-title");
-  check("删除同时清掉渠道", left.c === 0 && db.prepare("SELECT COUNT(*) AS c FROM offers WHERE title_id = ?").get("smoke-test-title").c === 0);
+  check("线上目录拒绝删除（410）", removed.response.status === 410, `status=${removed.response.status}`);
+
+  const stillThere = await hitJSON("/api/titles/hotd");
+  check("只读快照不受写请求影响", stillThere.response.status === 200 && stillThere.body.item?.id === "hotd");
 }
 
 console.log("\n=== 埋点与看板 ===");
@@ -400,7 +372,7 @@ console.log("\n=== 鉴权边界 ===");
   const crossOrigin = await hitJSON("/api/admin/titles", {
     method: "POST",
     headers: { "Content-Type": "application/json", Cookie: cookie, Origin: "https://evil.example.com" },
-    body: JSON.stringify(NEW_TITLE)
+    body: JSON.stringify({ title: "跨站片", type: "电影", offers: [] })
   });
   check("跨站写请求被拒", crossOrigin.response.status === 403);
 

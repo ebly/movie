@@ -4,6 +4,8 @@ const { HttpError, sendJSON, sendError, readJSON, clientKey, visitorId } = requi
 const { createRateLimiter, cleanText } = require("./feedback");
 const { publicBrand } = require("../shared/brand");
 const BRAND = require("../config/brand.json");
+const { PansouError } = require("../shared/pansou");
+const { createDoubanList, KIND_IDS } = require("../shared/douban");
 
 const DISCLAIMER = BRAND.disclaimer;
 // 对外只给白名单字段：brand.json 里的 defaultPassword / cookies / logPrefix 不外发。
@@ -21,8 +23,11 @@ async function record(promise) {
   }
 }
 
-function createApi({ store, feedback, analytics }) {
+function createApi({ store, feedback, analytics, pansou }) {
   const allowFeedback = createRateLimiter({ windowMs: 60_000, max: 5 });
+  const allowQuarkSearch = createRateLimiter({ windowMs: 60_000, max: 30 });
+  const allowDouban = createRateLimiter({ windowMs: 60_000, max: 20 });
+  const doubanList = createDoubanList();
 
   const index = {
     name: `${BRAND.name} API`,
@@ -32,6 +37,8 @@ function createApi({ store, feedback, analytics }) {
       { method: "GET", path: "/api/health", description: "健康检查" },
       { method: "GET", path: "/api/bootstrap", description: "平台列表、热门作品、统计与免责声明" },
       { method: "GET", path: "/api/search?q=&type=&limit=", description: "搜索作品（服务端排序与候选匹配）" },
+      { method: "GET", path: "/api/douban/list?kind=&limit=", description: "豆瓣榜单（kind=hot/latest，只有元数据，用于首页）" },
+      { method: "GET", path: "/api/pan/search?q=&type=&offset=&limit=", description: "搜索 PanSou 已接入来源中的网盘公开分享（type=quark/baidu/xunlei/aliyun）" },
       { method: "GET", path: "/api/titles", description: "作品列表（等价于空关键词搜索）" },
       { method: "GET", path: "/api/titles/:id", description: "作品详情与相似作品" },
       { method: "GET", path: "/api/titles/:id/offers?season=&region=&tier=&quality=&verified=1", description: "筛选观看渠道" },
@@ -60,6 +67,36 @@ function createApi({ store, feedback, analytics }) {
       });
     }
 
+    if (path === "/api/douban/list" || path === "/api/douban/list/" || path === "/api/douban/hot" || path === "/api/douban/hot/" || path === "/api/douban/nowplaying" || path === "/api/douban/nowplaying/") {
+      if (method !== "GET") return methodNotAllowed(res, "GET");
+      if (!allowDouban(clientKey(req))) {
+        return sendError(res, 429, "rate_limited", "请求太频繁，请稍后再试。", { "Retry-After": "60" });
+      }
+      try {
+        const kind = url.searchParams.get("kind") || "hot";
+        if (!KIND_IDS.includes(kind)) return sendError(res, 422, "invalid_kind", "kind 只支持 hot、latest。");
+        const limit = Number(url.searchParams.get("limit")) || 6;
+        return sendJSON(res, 200, { source: "douban", ...(await doubanList.list({ kind, limit })) });
+      } catch (err) {
+        return sendError(res, 502, "douban_unavailable", "豆瓣榜单暂时不可用，请稍后再试。");
+      }
+    }
+
+    // /api/quark/search 是早期路径，保留兼容；/api/pan/search 是加上多类型后的正式入口。
+    if (path === "/api/pan/search" || path === "/api/pan/search/" || path === "/api/quark/search" || path === "/api/quark/search/") {
+      if (method !== "GET") return methodNotAllowed(res, "GET");
+      if (!allowQuarkSearch(clientKey(req))) {
+        return sendError(res, 429, "rate_limited", "搜索太频繁，请稍后再试。", { "Retry-After": "60" });
+      }
+      if (!pansou) return sendError(res, 503, "pansou_unconfigured", "尚未配置 PanSou 搜索服务。");
+      try {
+        return sendJSON(res, 200, await pansou.search(url.searchParams));
+      } catch (err) {
+        if (err instanceof PansouError) return sendError(res, err.status, err.code, err.message);
+        throw err;
+      }
+    }
+
     if (path === "/api/bootstrap") {
       if (method !== "GET") return methodNotAllowed(res, "GET");
       return sendJSON(res, 200, {
@@ -82,7 +119,8 @@ function createApi({ store, feedback, analytics }) {
         limit: url.searchParams.get("limit") || undefined
       });
       data.tookMs = Date.now() - started;
-      if (analytics && data.query) {
+      // 联想请求（suggest=1）不计入热搜统计，只记用户真正提交的搜索。
+      if (analytics && data.query && url.searchParams.get("suggest") !== "1") {
         const visitor = visitorId(req, res);
         await record(analytics.recordSearch({
           query: data.query,

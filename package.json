@@ -7,13 +7,16 @@
   "scripts": {
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
+    "pansou:start": "node scripts/start-pansou.mjs",
+    "pansou:check": "node scripts/start-pansou.mjs --check",
+    "test:pansou": "node --test test/pansou.test.js",
+    "test:quark-ui": "node scripts/quark-ui-smoke.mjs",
     "test": "node --test",
     "dev:worker": "wrangler dev",
     "db:migrate": "wrangler d1 migrations apply yingtu-db --local",
     "db:migrate:remote": "wrangler d1 migrations apply yingtu-db --remote",
-    "db:seed": "node scripts/seed-d1.mjs && wrangler d1 execute yingtu-db --local --file=worker/seed.sql",
     "pinyin:build": "node scripts/build-pinyin.mjs",
-    "deploy": "wrangler deploy",
+    "deploy": "node scripts/sync-catalog.mjs && wrangler deploy",
     "preflight": "node scripts/preflight.mjs",
     "smoke:worker": "node --experimental-sqlite --no-warnings scripts/worker-smoke.mjs"
   },

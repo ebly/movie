@@ -5,13 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <!--SEO-->
   <meta name="theme-color" content="#f7f3ee">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='10' fill='%23f2e9e0'/%3E%3Cpath d='M7 22 16 8l9 14' fill='none' stroke='%23a4684f' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='16' cy='8' r='2.6' fill='%2366776a'/%3E%3C/svg%3E">
+  <meta name="theme-color" content="#232423" media="(prefers-color-scheme: dark)">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="apple-touch-icon" href="/icon-192.png">
+  <link rel="manifest" href="/manifest.webmanifest">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <!-- 字体不阻塞首屏：先按 print 载入，脚本就绪后再切换为 all；被墙时只回退到系统字体。 -->
   <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Manrope:wght@300;400;500;600&family=Noto+Sans+SC:wght@300;400;500&family=Noto+Serif+SC:wght@400;500;600&display=swap">
   <link id="font-css" rel="stylesheet" media="print" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Manrope:wght@300;400;500;600&family=Noto+Sans+SC:wght@300;400;500&family=Noto+Serif+SC:wght@400;500;600&display=swap">
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/styles.css?v=20261029r">
 </head>
 <body>
   <div class="texture" aria-hidden="true"></div>
@@ -23,6 +26,9 @@
   </div>
   <noscript><p class="noscript">映途需要 JavaScript 才能搜索，请开启后重试。</p></noscript>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <button id="back-top" class="back-top" type="button" aria-label="返回顶部" hidden>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+  </button>
 
   <dialog id="feedback-dialog" class="feedback-sheet" aria-labelledby="feedback-title">
     <form id="feedback-form" class="sheet-inner">
@@ -46,7 +52,7 @@
     </form>
   </dialog>
 
-  <script src="/api.js"></script>
-  <script src="/app.js"></script>
+  <script src="/api.js?v=20261029r"></script>
+  <script src="/app.js?v=20261029r"></script>
 </body>
 </html>

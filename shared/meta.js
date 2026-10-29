@@ -77,7 +77,18 @@ function detailMeta(item, id, brand, origin) {
 
 function searchMeta(url, brand, origin) {
   const query = (url.searchParams.get("q") || "").trim();
-  const canonical = `${origin}/search${query ? `?q=${encodeURIComponent(query)}` : ""}`;
+  const quark = url.searchParams.get("source") === "quark";
+  const canonical = quark
+    ? `${origin}/search?source=quark${query ? `&q=${encodeURIComponent(query)}` : ""}`
+    : `${origin}/search${query ? `?q=${encodeURIComponent(query)}` : ""}`;
+  if (quark) return {
+    status: 200,
+    meta: metaBlock({
+      title: `${query ? `搜索「${clip(query, 24)}」` : "搜索"}夸克公开分享 — ${brand.name}`,
+      description: "搜索 PanSou 已接入公开来源中的夸克分享，不是夸克全量或私人文件搜索。",
+      canonical, robots: "noindex,follow"
+    })
+  };
   return {
     status: 200,
     meta: metaBlock({
@@ -93,8 +104,8 @@ function listMeta(brand, origin) {
   return {
     status: 200,
     meta: metaBlock({
-      title: `我的片单 — ${brand.name}`,
-      description: "收藏的影视与分享片单，数据只保存在你自己的浏览器里。",
+      title: `我的收藏 — ${brand.name}`,
+      description: "收藏的影视作品与网盘分享链接，数据只保存在你自己的浏览器里。",
       canonical: `${origin}/list`,
       robots: "noindex,follow"
     })

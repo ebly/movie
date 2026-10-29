@@ -7,8 +7,8 @@ let BRAND = {
   name: "映途",
   latin: "Yingtu",
   slug: "yingtu",
-  tagline: "正版观看渠道索引",
-  slogan: "找到正版影视的观看去处"
+  tagline: "影视索引与公开分享搜索",
+  slogan: "查找影视作品与公开分享"
 };
 
 const API = (() => {
@@ -53,16 +53,38 @@ const API = (() => {
     bootstrap() {
       return request("/api/bootstrap");
     },
-    search({ q = "", type = "全部", limit = 50, signal } = {}) {
+    doubanList({ kind = "hot", limit = 11, signal } = {}) {
+      return request(`/api/douban/list?kind=${encodeURIComponent(kind)}&limit=${encodeURIComponent(limit)}`, { signal });
+    },
+    search({ q = "", type = "全部", limit = 50, signal, suggest = false } = {}) {
       const params = new URLSearchParams();
       if (q) params.set("q", q);
       if (type && type !== "全部") params.set("type", type);
       if (limit) params.set("limit", String(limit));
+      // 联想请求不打热搜埋点，避免逐字输入污染 analytics。
+      if (suggest) params.set("suggest", "1");
       const query = params.toString();
       return request(`/api/search${query ? `?${query}` : ""}`, { signal });
     },
     title(id, signal) {
       return request(`/api/titles/${encodeURIComponent(id)}`, { signal });
+    },
+    async panSearch({ q = "", type = "quark", offset = 0, reload = false, signal } = {}) {
+      const query = String(q).trim();
+      if (!query) throw new Error("请输入网盘资源搜索关键词。");
+      if (!Number.isSafeInteger(offset) || offset < 0) throw new Error("分页位置无效。");
+      const params = new URLSearchParams({ q: query, type, offset: String(offset), limit: "30" });
+      // 只跳过 movie 的短缓存，不向 PanSou 发送 refresh。
+      if (reload) params.set("reload", "1");
+      const data = await request(`/api/pan/search?${params.toString()}`, { signal });
+      if (!data || !Array.isArray(data.items)
+        || !Number.isSafeInteger(data.total) || data.total < 0
+        || data.offset !== offset || data.limit !== 30
+        || typeof data.hasMore !== "boolean"
+        || typeof data.complete !== "boolean") {
+        throw new Error("网盘搜索响应或分页格式异常，请稍后重试。");
+      }
+      return data;
     },
     feedback(payload) {
       return request("/api/feedback", { method: "POST", body: payload });

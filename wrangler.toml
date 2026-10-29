@@ -32,7 +32,8 @@ run_worker_first = [
 [[d1_databases]]
 binding = "DB"
 database_name = "yingtu-db"
-# 真实 ID：由 `wrangler d1 create yingtu-db` 生成。换账号部署时替换成自己的。
+# 只存 analytics（events）与 feedback；影片目录在部署时打包进 ASSETS
+# （client/data/titles.json，由 scripts/sync-catalog.mjs 同步），D1 不再存 titles/offers。
 database_id = "aa313be6-37b1-4111-80c9-58e781fefcb6"
 migrations_dir = "worker/migrations"
 

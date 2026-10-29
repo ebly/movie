@@ -1,4 +1,5 @@
-// store.js — 基于 D1 (env.DB) 的数据层：目录加载、搜索打分/筛选/related（对齐 server/store.js）与作品 CRUD（对齐 server/repository.js + server/validate.js）。
+// store.js — 数据层：目录来自部署时打包的 titles.json（只读快照），搜索打分/筛选/related 对齐
+// server/store.js。D1 (env.DB) 只由 analytics / feedback 使用，不再存影片数据。
 
 import { TYPES, QUALITY_ORDER } from "./config.js";
 import searchCore from "../shared/search.js";
@@ -244,77 +245,28 @@ export function candidateId(title, original) {
   return `title-${randomHex(3)}`;
 }
 
-/* ---------------- 目录加载（D1 -> 内存） ---------------- */
+/* ---------------- 目录加载（titles.json -> 内存，随部署打包，只读） ---------------- */
 
-function rowToItem(row) {
-  return {
-    id: row.id,
-    title: row.title,
-    original: row.original,
-    year: row.year,
-    type: row.type,
-    rating: row.rating,
-    seasons: row.seasons == null ? null : row.seasons,
-    runtime: row.runtime == null ? null : row.runtime,
-    genres: parseJSON(row.genres, []),
-    synopsis: row.synopsis || "",
-    aliases: parseJSON(row.aliases, []),
-    tags: parseJSON(row.tags, []),
-    hot: Boolean(row.hot),
-    poster: row.poster == null ? null : row.poster,
-    art: parseJSON(row.art, {}),
-    offers: [],
-    createdAt: row.created_at || null,
-    updatedAt: row.updated_at || null
-  };
-}
-
-function rowToOffer(row) {
-  return {
-    pid: row.pid,
-    tier: row.tier,
-    season: row.season == null ? null : row.season,
-    quality: parseJSON(row.quality, []),
-    price: row.price || "",
-    verified: Boolean(row.verified)
-  };
-}
-
-/** 一次性加载全部 titles + offers，按 rowid / position 保持与 Node 版一致的顺序。 */
-export async function loadCatalog(db) {
-  const readAll = async () => {
-    const [titleRes, offerRes] = await Promise.all([
-      db.prepare("SELECT * FROM titles ORDER BY rowid").all(),
-      db.prepare("SELECT * FROM offers ORDER BY title_id, position, id").all()
-    ]);
-    return [titleRes, offerRes];
-  };
-  let titleRes, offerRes;
-  try {
-    // D1 的 batch 只接受 prepared statement —— 不能先 .all()（那会传进一个 Promise）。
-    // 标准写法同时也让两次查询落在同一个事务里。
-    [titleRes, offerRes] = await db.batch([
-      db.prepare("SELECT * FROM titles ORDER BY rowid"),
-      db.prepare("SELECT * FROM offers ORDER BY title_id, position, id")
-    ]);
-  } catch (err) {
-    // 读路径没有原子性需求：任何 batch 异常都降级为两条独立查询，
-    // 不能因为某环境对 batch 的处理不一致就把整站打成 500。
-    console.warn("[yingtu] batch 读取失败，降级为独立查询：", err && err.message);
-    [titleRes, offerRes] = await readAll();
-  }
-  const items = (titleRes.results || []).map(rowToItem);
-  const byId = new Map();
-  const offersByTitle = new Map();
-  (offerRes.results || []).forEach((row) => {
-    const offers = offersByTitle.get(row.title_id) || [];
-    offers.push(rowToOffer(row));
-    offersByTitle.set(row.title_id, offers);
-  });
-  items.forEach((item) => {
-    item.offers = offersByTitle.get(item.id) || [];
-    byId.set(item.id, item);
-  });
+/**
+ * 目录来源是仓库根目录 data/titles.json（本地后台独占维护），部署时由
+ * scripts/sync-catalog.mjs 拷进 client/data/ 随 ASSETS 上线。线上为只读快照，
+ * 数据更新 = 本地改完重新 npm run deploy。
+ */
+export function catalogFromData(data) {
+  const raw = Array.isArray(data && data.items) ? data.items : [];
+  const items = raw
+    .filter((item) => item && typeof item.id === "string" && typeof item.title === "string")
+    .map((item) => ({
+      ...item,
+      original: item.original || "",
+      genres: Array.isArray(item.genres) ? item.genres : [],
+      aliases: Array.isArray(item.aliases) ? item.aliases : [],
+      tags: Array.isArray(item.tags) ? item.tags : [],
+      hot: Boolean(item.hot),
+      art: item.art && typeof item.art === "object" ? item.art : {},
+      offers: Array.isArray(item.offers) ? item.offers : []
+    }));
+  const byId = new Map(items.map((item) => [item.id, item]));
   return { items, byId };
 }
 
@@ -322,7 +274,7 @@ export async function loadCatalog(db) {
 
 const DEFAULT_LIMIT = 50;
 
-export function createStore({ db, providers, catalog }) {
+export function createStore({ providers, catalog }) {
   const all = () => catalog.items;
   const getById = (id) => catalog.byId.get(String(id || "")) || null;
 
@@ -531,112 +483,6 @@ export function createStore({ db, providers, catalog }) {
     };
   }
 
-  /* ---------------- CRUD（对齐 server/repository.js，优先 db.batch 事务写回） ---------------- */
-
-  /**
-   * 事务式执行一组写语句。
-   * 本地 wrangler dev 的 miniflare batch 序列化有缺陷（ZodError）时，
-   * 降级为逐条执行（失去原子性，仅影响本地演示；生产 workerd 走 batch 事务）。
-   */
-  async function runStatements(statements) {
-    try {
-      return await db.batch(statements);
-    } catch (err) {
-      const isLocalBatchBug = /ZodError|Failed to parse body/.test(String(err && err.message));
-      const readable = statements.every((s) => typeof s.statement === "string" && Array.isArray(s.params));
-      if (!isLocalBatchBug || !readable) throw err;
-      for (const s of statements) {
-        await db.prepare(s.statement).bind(...s.params).run();
-      }
-      return null;
-    }
-  }
-
-  function nextId(title, original) {
-    const base = candidateId(title, original);
-    if (!catalog.byId.has(base)) return base;
-    let index = 2;
-    while (catalog.byId.has(`${base}-${index}`)) index += 1;
-    return `${base}-${index}`;
-  }
-
-  function titleStatements(item, { insert }) {
-    const statements = [];
-    if (insert) {
-      statements.push(db.prepare(
-        "INSERT INTO titles (id, title, original, year, type, rating, seasons, runtime, genres, synopsis, aliases, tags, hot, poster, art, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-      ).bind(
-        item.id, item.title, item.original, item.year, item.type, item.rating,
-        item.seasons, item.runtime, JSON.stringify(item.genres || []), item.synopsis,
-        JSON.stringify(item.aliases || []), JSON.stringify(item.tags || []),
-        item.hot ? 1 : 0, item.poster || null, JSON.stringify(item.art || {}), item.createdAt, item.updatedAt
-      ));
-    } else {
-      statements.push(db.prepare(
-        "UPDATE titles SET title = ?, original = ?, year = ?, type = ?, rating = ?, seasons = ?, runtime = ?, genres = ?, synopsis = ?, aliases = ?, tags = ?, hot = ?, poster = ?, art = ?, created_at = ?, updated_at = ? WHERE id = ?"
-      ).bind(
-        item.title, item.original, item.year, item.type, item.rating,
-        item.seasons, item.runtime, JSON.stringify(item.genres || []), item.synopsis,
-        JSON.stringify(item.aliases || []), JSON.stringify(item.tags || []),
-        item.hot ? 1 : 0, item.poster || null, JSON.stringify(item.art || {}), item.createdAt, item.updatedAt, item.id
-      ));
-    }
-    statements.push(db.prepare("DELETE FROM offers WHERE title_id = ?").bind(item.id));
-    (item.offers || []).forEach((offerItem, index) => {
-      statements.push(db.prepare(
-        "INSERT INTO offers (title_id, position, pid, tier, season, quality, price, verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-      ).bind(
-        item.id, index, offerItem.pid, offerItem.tier, offerItem.season,
-        JSON.stringify(offerItem.quality || []), offerItem.price, offerItem.verified ? 1 : 0
-      ));
-    });
-    return statements;
-  }
-
-  async function createTitle(input) {
-    const now = new Date().toISOString();
-    const item = {
-      ...input,
-      id: nextId(input.title, input.original),
-      createdAt: now,
-      updatedAt: now
-    };
-    await runStatements(titleStatements(item, { insert: true }));
-    catalog.items.push(item);
-    catalog.byId.set(item.id, item);
-    return item;
-  }
-
-  async function updateTitle(id, input) {
-    const current = getById(id);
-    if (!current) return null;
-    const index = catalog.items.indexOf(current);
-    const next = {
-      ...input,
-      id: current.id,
-      createdAt: current.createdAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-    await runStatements(titleStatements(next, { insert: false }));
-    catalog.items[index] = next;
-    catalog.byId.set(next.id, next);
-    return next;
-  }
-
-  async function removeTitle(id) {
-    const current = getById(id);
-    if (!current) return null;
-    const index = catalog.items.indexOf(current);
-    // offers 定义了 ON DELETE CASCADE，但 D1 的外键开关取决于绑定配置，这里显式删除以保证一致。
-    await runStatements([
-      db.prepare("DELETE FROM offers WHERE title_id = ?").bind(current.id),
-      db.prepare("DELETE FROM titles WHERE id = ?").bind(current.id)
-    ]);
-    catalog.items.splice(index, 1);
-    catalog.byId.delete(current.id);
-    return current;
-  }
-
   return {
     providers,
     types: TYPES,
@@ -649,9 +495,6 @@ export function createStore({ db, providers, catalog }) {
     search,
     getTitle,
     filterOffers,
-    resolveOffer,
-    createTitle,
-    updateTitle,
-    removeTitle
+    resolveOffer
   };
 }

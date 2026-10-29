@@ -13,3 +13,6 @@ data/feedback.ndjson
 .wrangler/
 .wr4/
 worker/seed.sql
+# 第三方参考代码，不进本仓库
+pansou-main/
+client/data/
