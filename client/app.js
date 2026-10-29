@@ -654,25 +654,6 @@ function featureGroupHTML(items) {
   </div>`;
 }
 
-/* 精选池：主推取热门，另取 6 个热词做快捷搜索 */
-function homePools() {
-  const hot = (BOOT.hot || []).slice();
-  const rated = (BOOT.all && BOOT.all.length ? BOOT.all : hot).slice();
-  const used = new Set();
-  const take = (n, pool) => {
-    const out = [];
-    for (const item of pool) {
-      if (out.length >= n) break;
-      if (!used.has(item.id)) {
-        used.add(item.id);
-        out.push(item);
-      }
-    }
-    return out;
-  };
-  return { lead: take(3, hot), chips: take(6, rated) };
-}
-
 /* 豆瓣条目没有本地配色，按片名散列出一组固定色调，避免每次刷新变色 */
 const HOME_PALETTES = [
   { p1: "#d9d0c6", p2: "#77776d", p3: "#a4684f", p4: "#8d5647", ink: "#2f3230" },
@@ -694,6 +675,34 @@ let latestCache = null;
 // 热门榜片名池：[{ title, hue }]；先显示 10 个，点箭头再追加 10 个
 let hotTitlePool = [];
 const HOT_PAGE = 10;
+
+/* 豆瓣榜单上次成功的快照：接口挂了先退回这份，缓存也是空的才整块不显示 */
+const DOUBAN_CACHE_KEY = "yingtu-douban-cache";
+const DOUBAN_CACHE_FIELDS = ["id", "title", "year", "type", "rating", "poster", "genres"];
+
+function readDoubanCache(kind) {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(DOUBAN_CACHE_KEY) || "{}");
+    const items = parsed && Array.isArray(parsed[kind]) ? parsed[kind] : [];
+    return items.filter((item) => item && typeof item.id === "string" && item.title);
+  } catch (err) {
+    return [];
+  }
+}
+
+function writeDoubanCache(kind, items) {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(DOUBAN_CACHE_KEY) || "{}");
+    parsed[kind] = items.map((item) => {
+      const picked = {};
+      for (const key of DOUBAN_CACHE_FIELDS) if (item[key] !== undefined) picked[key] = item[key];
+      return picked;
+    });
+    localStorage.setItem(DOUBAN_CACHE_KEY, JSON.stringify(parsed));
+  } catch (err) {
+    // 存不下（隐私模式 / 配额满）就不缓存，不影响页面
+  }
+}
 
 // 每次进首页换一套起点：黄金角步进保证相邻色相差得开，刷新后组合不同
 const HOT_HUE_START = Math.random() * 360;
@@ -724,6 +733,7 @@ function applyHotChips(items) {
     ? `<span class="hot-tail">${hotChipHTML(first[first.length - 1])}<button class="hot-more" type="button" data-hot-more aria-label="展开更多热门搜索" title="展开更多">↓</button></span>`
     : "";
   box.innerHTML = `<span class="hot-label">大家都在搜</span>${head.map(hotChipHTML).join("")}${tail}`;
+  box.hidden = false;
 }
 
 /** 展开第二批片名，箭头随之消失。 */
@@ -741,55 +751,76 @@ async function loadLatestList() {
   if (!body) return;
   if (latestCache) {
     body.innerHTML = latestCache;
+    revealFeatured();
     return;
   }
+  let items = readDoubanCache("latest").slice(0, 11);
   try {
     const data = await API.doubanList({ kind: "latest", limit: 11 });
     if (location.pathname !== "/") return;
-    const items = (data.items || []).filter((item) => item && item.title).slice(0, 11);
-    if (items.length < 2) return;
-    const html = featureGroupHTML(items.map((item) => ({
-      ...item,
-      href: searchURL(item.title),
-      art: paletteFor(item.title)
-    })));
-    latestCache = html;
-    const target = document.getElementById("feature-body");
-    if (target) target.innerHTML = html;
+    const fresh = (data.items || []).filter((item) => item && item.title).slice(0, 11);
+    if (fresh.length >= 2) {
+      items = fresh;
+      writeDoubanCache("latest", fresh);
+    }
   } catch (err) {
-    // 榜单挂了就用本地热门，不打断首页
+    // 豆瓣拿不到就用上次成功的缓存，缓存也空就整块不显示
   }
+  if (items.length < 2) return;
+  const html = featureGroupHTML(items.map((item) => ({
+    ...item,
+    href: searchURL(item.title),
+    art: paletteFor(item.title)
+  })));
+  latestCache = html;
+  const target = document.getElementById("feature-body");
+  if (!target) return;
+  target.innerHTML = html;
+  revealFeatured();
+}
+
+/** 榜单到了才把右栏放出来，首页保持单列居中 */
+function revealFeatured() {
+  const body = document.getElementById("feature-body");
+  if (!body || !body.children.length) return;
+  const aside = body.closest(".home-featured");
+  if (!aside) return;
+  aside.hidden = false;
+  const grid = aside.closest(".hero-grid");
+  if (grid) grid.classList.remove("solo");
 }
 
 async function loadHotChips() {
+  let items = readDoubanCache("hot");
   try {
     const data = await API.doubanList({ kind: "hot", limit: HOT_PAGE * 2 });
     if (location.pathname !== "/") return;
-    applyHotChips(data.items || []);
+    const fresh = (data.items || []).filter((item) => item && item.title).slice(0, HOT_PAGE * 2);
+    if (fresh.length) {
+      items = fresh;
+      writeDoubanCache("hot", fresh);
+    }
   } catch (err) {
-    // 热门榜失败就保留本地标签
+    // 热门榜失败就退回上次成功的片名，缓存也空就不显示这一行
   }
+  applyHotChips(items);
 }
 
 function renderHome() {
   setRouteBusy(false);
   document.title = `${BRAND.name} — ${BRAND.slogan}`;
-  const pools = homePools();
 
   app.innerHTML = `<div class="home view">
     ${headerHTML()}
     <main class="home-main">
-      <section class="hero-grid">
+      <section class="hero-grid solo">
         <div class="hero-copy">
           <h1 class="display-title animate d1">想看什么？<span class="hero-accent">直接搜</span></h1>
           <div class="hero-search animate d2">${searchFormHTML("")}</div>
-          <div class="hot animate d3" id="home-hot">
-            <span class="hot-label">大家都在搜</span>
-            ${pools.chips.map((item) => `<button class="chip" type="button" data-q="${esc(item.title)}">${esc(item.title)}</button>`).join("")}
-          </div>
+          <div class="hot animate d3" id="home-hot" hidden></div>
         </div>
-        <aside class="home-featured animate d4" aria-label="最新电影">
-          <div id="feature-body">${pools.lead.length ? featureGroupHTML(pools.lead) : ""}</div>
+        <aside class="home-featured animate d4" aria-label="最新电影" hidden>
+          <div id="feature-body"></div>
         </aside>
       </section>
     </main>

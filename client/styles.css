@@ -345,6 +345,10 @@ body.is-routing .view { opacity: .55; transition: opacity .12s ease; }
   flex: 1;
   min-height: 0;
 }
+/* 豆瓣榜单没拿到时右栏不占位，搜索区单列居中 */
+.hero-grid.solo { grid-template-columns: minmax(0, 1fr); }
+/* .hot / .home-featured 自带 display:flex，会盖掉 hidden 属性，这里显式隐藏 */
+.hot[hidden], .home-featured[hidden] { display: none; }
 
 .display-title {
   margin: 0;
