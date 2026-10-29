@@ -227,6 +227,17 @@ async function drain() {
   pending.length = 0;
 }
 
+console.log("\n=== 冷启动（isolate 首次请求） ===");
+{
+  // 每次 import 都拿到独立的模块实例，等于全新的 isolate；首个请求必须是详情页/站点地图，
+  // 否则 catalog 缓存已被其它请求预热，这条路径永远测不到。
+  const cold = async (tag) => (await import(`file://${BUNDLE.replace(/\\/g, "/")}?cold=${tag}-${Date.now()}`)).default;
+  const detail = await (await cold("detail")).fetch(new Request(ORIGIN + "/title/hotd"), env, execution);
+  check("冷启动首个请求 GET /title/hotd", detail.status === 200 && (await detail.text()).includes("<title"), `status=${detail.status}`);
+  const sitemap = await (await cold("sitemap")).fetch(new Request(ORIGIN + "/sitemap.xml"), env, execution);
+  check("冷启动首个请求 GET /sitemap.xml", sitemap.status === 200, `status=${sitemap.status}`);
+}
+
 console.log("\n=== 公开接口 ===");
 {
   const { response, body } = await hitJSON("/api/health");

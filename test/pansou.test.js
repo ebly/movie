@@ -102,7 +102,7 @@ test("queries all enabled sources, filters quark, paginates all results and uses
   const client = make(async (url, opts) => {
     calls++;
     assert.equal(url, "http://127.0.0.1:8888/api/search");
-    assert.equal(opts.redirect, "error");
+    assert.equal(opts.redirect, "manual");
     assert.deepEqual(JSON.parse(opts.body), { kw: "开放电影", src: "all", res: "merge", cloud_types: ["quark"] });
     return json(wrap());
   });

@@ -159,9 +159,15 @@ function createPansouClient(options = {}) {
       }, timeoutMs);
     });
     const run = async () => {
-      const response = await fetchImpl(target, { method: "POST", redirect: "error", signal: controller.signal,
+      // Workers 的 fetch 只接受 follow/manual（"error" 会在边缘直接抛错），
+      // 用 manual 手动拒掉 3xx，语义和原来的 redirect:"error" 一致。
+      const response = await fetchImpl(target, { method: "POST", redirect: "manual", signal: controller.signal,
         headers: { Accept: "application/json", "Content-Type": "application/json", ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}) },
         body: JSON.stringify(body) });
+      if (response.status >= 300 && response.status < 400) {
+        if (response.body) await response.body.cancel();
+        throw new PansouError(502, "pansou_redirect", "PanSou 返回了重定向，请检查地址配置。");
+      }
       if (!response.ok) {
         if (response.body) await response.body.cancel();
         if (response.status === 401 || response.status === 403) throw new PansouError(502, "pansou_auth", "PanSou 认证失败，请检查服务端令牌或账号配置。");

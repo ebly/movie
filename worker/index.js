@@ -645,7 +645,7 @@ function sendHTML(ctx, status, html, extraHeaders = {}) {
 async function handlePage(ctx, kind, id) {
   let result;
   if (kind === "detail") {
-    const catalog = await getCatalog(ctx.env);
+    const catalog = await getCatalog(ctx.env, ctx.url);
     result = meta.detailMeta(catalog.byId.get(id) || null, id, BRAND, ctx.url.origin);
   } else if (kind === "search") {
     result = meta.searchMeta(ctx.url, BRAND, ctx.url.origin);
@@ -663,7 +663,7 @@ async function handlePage(ctx, kind, id) {
 }
 
 async function handleSitemap(ctx) {
-  const catalog = await getCatalog(ctx.env);
+  const catalog = await getCatalog(ctx.env, ctx.url);
   const headers = buildHeaders(ctx, 200, {
     "Content-Type": "application/xml; charset=utf-8",
     "Cache-Control": "public, max-age=3600"
