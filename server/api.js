@@ -27,6 +27,13 @@ function createApi({ store, feedback, analytics, pansou }) {
   const allowFeedback = createRateLimiter({ windowMs: 60_000, max: 5 });
   const allowQuarkSearch = createRateLimiter({ windowMs: 60_000, max: 30 });
   const allowDouban = createRateLimiter({ windowMs: 60_000, max: 20 });
+  // 防刷：全站总量、访客维度、跳过缓存（reload）各自计数，另加并发闸门。
+  // 单次 reload 会让 PanSou 把全部启用插件打一遍，所以它必须比普通搜索严得多。
+  const allowPanGlobal = createRateLimiter({ windowMs: 60_000, max: 240 });
+  const allowPanVisitor = createRateLimiter({ windowMs: 60_000, max: 20 });
+  const allowPanReload = createRateLimiter({ windowMs: 60_000, max: 5 });
+  const PAN_MAX_INFLIGHT = 3;
+  let panInflight = 0;
   const doubanList = createDoubanList();
 
   const index = {
@@ -85,15 +92,32 @@ function createApi({ store, feedback, analytics, pansou }) {
     // /api/quark/search 是早期路径，保留兼容；/api/pan/search 是加上多类型后的正式入口。
     if (path === "/api/pan/search" || path === "/api/pan/search/" || path === "/api/quark/search" || path === "/api/quark/search/") {
       if (method !== "GET") return methodNotAllowed(res, "GET");
-      if (!allowQuarkSearch(clientKey(req))) {
+      const ip = clientKey(req);
+      const reload = url.searchParams.get("reload") === "1";
+      if (!allowPanGlobal("all")) {
+        return sendError(res, 429, "rate_limited", "全站搜索请求过多，请稍后再试。", { "Retry-After": "30" });
+      }
+      if (!allowQuarkSearch(ip)) {
         return sendError(res, 429, "rate_limited", "搜索太频繁，请稍后再试。", { "Retry-After": "60" });
       }
+      if (!allowPanVisitor(visitorId(req, res))) {
+        return sendError(res, 429, "rate_limited", "搜索太频繁，请稍后再试。", { "Retry-After": "60" });
+      }
+      if (reload && !allowPanReload(ip)) {
+        return sendError(res, 429, "rate_limited", "「重新获取」太频繁，请等一分钟再试。", { "Retry-After": "60" });
+      }
       if (!pansou) return sendError(res, 503, "pansou_unconfigured", "尚未配置 PanSou 搜索服务。");
+      if (panInflight >= PAN_MAX_INFLIGHT) {
+        return sendError(res, 429, "busy", "当前搜索任务较多，请稍后再试。", { "Retry-After": "5" });
+      }
+      panInflight += 1;
       try {
         return sendJSON(res, 200, await pansou.search(url.searchParams));
       } catch (err) {
         if (err instanceof PansouError) return sendError(res, err.status, err.code, err.message);
         throw err;
+      } finally {
+        panInflight -= 1;
       }
     }
 

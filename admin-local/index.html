@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>映途 · 本地后台</title>
+<style>
+  :root { --bg:#f7f3ee; --card:#fffdfa; --ink:#2b2822; --muted:#8a8378; --line:#e6ddd2; --brand:#a4684f; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:14px/1.6 "Noto Sans SC","Manrope",system-ui,sans-serif; }
+  .wrap { max-width:1080px; margin:0 auto; padding:28px 20px 60px; }
+  h1 { font:500 26px/1.2 "Noto Serif SC","Instrument Serif",serif; margin:0 0 4px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:22px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px 20px; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  input, select, textarea { font:inherit; color:inherit; background:#fff; border:1px solid var(--line);
+    border-radius:9px; padding:8px 11px; outline:none; }
+  input:focus, select:focus, textarea:focus { border-color:var(--brand); }
+  button { font:inherit; cursor:pointer; border-radius:9px; border:1px solid var(--line);
+    background:#fff; padding:8px 14px; }
+  button.primary { background:var(--brand); border-color:var(--brand); color:#fff; }
+  button.danger { color:#a5342c; border-color:#e6c3bd; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  table { width:100%; border-collapse:collapse; margin-top:14px; }
+  th, td { text-align:left; padding:9px 8px; border-bottom:1px solid var(--line); font-size:13px; }
+  th { color:var(--muted); font-weight:500; }
+  .muted { color:var(--muted); }
+  #login { max-width:360px; margin:12vh auto; }
+  #login input { width:100%; margin-bottom:10px; }
+  #login button { width:100%; }
+  .err { color:#a5342c; font-size:13px; min-height:20px; }
+  #mask { position:fixed; inset:0; background:rgba(32,28,24,.42); display:none;
+          align-items:flex-start; justify-content:center; padding:36px 16px; overflow:auto; }
+  #mask.on { display:flex; }
+  #editor { width:100%; max-width:720px; background:var(--card); border-radius:16px; padding:22px 24px; }
+  .grid { display:grid; grid-template-columns:repeat(2,1fr); gap:12px 16px; }
+  .grid label { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; }
+  .grid input, .grid select, .grid textarea { width:100%; }
+  .full { grid-column:1/-1; }
+  .offer { display:grid; grid-template-columns:1.2fr .9fr .9fr 1.5fr 1fr auto auto; gap:8px;
+           align-items:center; margin-bottom:8px; }
+  .offer input, .offer select { width:100%; padding:6px 8px; font-size:13px; }
+  @media (max-width:720px) { .grid { grid-template-columns:1fr; } .offer { grid-template-columns:1fr 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <section id="login" class="card">
+    <h1>映途 · 本地后台</h1>
+    <p class="sub" id="login-sub">正在连接…</p>
+    <form id="login-form">
+      <input id="password" type="password" placeholder="管理密码" autocomplete="current-password" required>
+      <button class="primary" type="submit">登录</button>
+    </form>
+    <p class="err" id="login-err"></p>
+  </section>
+
+  <main id="app" hidden>
+    <h1>片库管理</h1>
+    <p class="sub" id="status-line"></p>
+
+    <div class="card">
+      <div class="row">
+        <input id="q" placeholder="搜索作品 / 原名 / 别名" style="flex:1;min-width:200px">
+        <button id="btn-refresh">刷新</button>
+        <button id="btn-new" class="primary">新增作品</button>
+        <button id="btn-logout">退出</button>
+      </div>
+      <table>
+        <thead>
+          <tr><th>ID</th><th>作品</th><th>类型</th><th>年份</th><th>评分</th><th>渠道</th><th>操作</th></tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <p class="muted" id="empty" hidden>没有匹配的作品。</p>
+    </div>
+  </main>
+</div>
+
+<div id="mask">
+  <div id="editor">
+    <h1 id="editor-title" style="font-size:20px">编辑作品</h1>
+    <p class="sub" id="editor-sub"></p>
+
+    <div class="grid">
+      <div><label>中文名 *</label><input id="f-title"></div>
+      <div><label>原名 *</label><input id="f-original"></div>
+      <div><label>类型</label><select id="f-type"></select></div>
+      <div><label>年份</label><input id="f-year" type="number" min="1888"></div>
+      <div><label>评分 0–10</label><input id="f-rating" type="number" step="0.1" min="0" max="10"></div>
+      <div><label>季数（电影留空）</label><input id="f-seasons" type="number" min="0"></div>
+      <div><label>片长</label><input id="f-runtime" placeholder="2h 15m"></div>
+      <div><label>海报直链（https，可空）</label><input id="f-poster"></div>
+      <div class="full"><label>类型标签 *（逗号分隔）</label><input id="f-genres"></div>
+      <div class="full"><label>别名（逗号分隔）</label><input id="f-aliases"></div>
+      <div class="full"><label>标签（逗号分隔）</label><input id="f-tags"></div>
+      <div class="full"><label>简介 *</label><textarea id="f-synopsis" rows="4"></textarea></div>
+      <div class="full">
+        <label><input id="f-hot" type="checkbox" style="width:auto"> 首页热门</label>
+      </div>
+    </div>
+
+    <h2 style="font-size:15px;margin:20px 0 10px">观看渠道</h2>
+    <div id="offers"></div>
+    <button id="btn-add-offer" type="button">+ 添加渠道</button>
+
+    <p class="err" id="editor-err"></p>
+    <div class="row" style="justify-content:flex-end;margin-top:16px">
+      <button id="btn-cancel" type="button">取消</button>
+      <button id="btn-save" class="primary" type="button">保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = (selector) => document.querySelector(selector);
+let META = null;
+let CURRENT = null;
+
+async function api(path, options = {}) {
+  const res = await fetch("/api" + path, {
+    headers: { "content-type": "application/json" },
+    ...options
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data && data.error && data.error.message) || "HTTP " + res.status);
+  return data;
+}
+
+function esc(value) {
+  return String(value == null ? "" : value).replace(/[&<>"]/g, (char) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[char]));
+}
+
+const split = (value) => String(value || "").split(/[,，]/).map((part) => part.trim()).filter(Boolean);
+
+/* ---------- 登录与启动 ---------- */
+$("#login-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  $("#login-err").textContent = "";
+  try {
+    await api("/login", { method: "POST", body: JSON.stringify({ password: $("#password").value }) });
+    await boot();
+  } catch (err) {
+    $("#login-err").textContent = err.message;
+  }
+});
+
+$("#btn-logout").addEventListener("click", async () => {
+  await api("/logout", { method: "POST" }).catch(() => {});
+  location.reload();
+});
+
+async function boot() {
+  const status = await api("/status");
+  $("#login-sub").textContent = "上游 API：" + status.api +
+    (status.proxy ? " · 代理 " + status.proxy : " · 直连");
+  if (!status.loggedIn) {
+    $("#login").hidden = false;
+    $("#app").hidden = true;
+    return;
+  }
+  META = await api("/meta");
+  $("#f-type").innerHTML = META.types
+    .map((type) => "<option value='" + esc(type) + "'>" + esc(type) + "</option>").join("");
+  $("#status-line").textContent = "已连接 " + status.api +
+    (status.expiresAt ? " · 会话到期 " + new Date(status.expiresAt).toLocaleString() : "");
+  $("#login").hidden = true;
+  $("#app").hidden = false;
+  await loadList();
+}
+
+/* ---------- 列表 ---------- */
+async function loadList() {
+  const q = $("#q").value.trim();
+  const data = await api("/titles" + (q ? "?q=" + encodeURIComponent(q) : ""));
+  const rows = $("#rows");
+  rows.innerHTML = "";
+  data.items.forEach((item) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      "<td class='muted'>" + esc(item.id) + "</td>" +
+      "<td><strong>" + esc(item.title) + "</strong><br><span class='muted'>" + esc(item.original) + "</span></td>" +
+      "<td>" + esc(item.type) + "</td>" +
+      "<td>" + esc(item.year) + "</td>" +
+      "<td>" + esc(item.rating) + "</td>" +
+      "<td>" + esc(item.verifiedCount) + "/" + esc(item.offerCount) + "</td>" +
+      "<td><button data-edit='" + esc(item.id) + "'>编辑</button> " +
+      "<button class='danger' data-del='" + esc(item.id) + "'>删除</button></td>";
+    rows.appendChild(tr);
+  });
+  $("#empty").hidden = data.items.length > 0;
+}
+
+$("#rows").addEventListener("click", async (event) => {
+  const editId = event.target.dataset.edit;
+  const delId = event.target.dataset.del;
+  if (editId) return openEditor(editId);
+  if (delId) {
+    if (!confirm("确定删除《" + delId + "》？前台会立即消失。")) return;
+    await api("/titles/" + encodeURIComponent(delId), { method: "DELETE" });
+    await loadList();
+  }
+});
+
+$("#btn-refresh").addEventListener("click", loadList);
+$("#q").addEventListener("keydown", (event) => { if (event.key === "Enter") loadList(); });
+$("#btn-new").addEventListener("click", () => openEditor(null));
+$("#btn-cancel").addEventListener("click", closeEditor);
+
+/* ---------- 编辑器 ---------- */
+function offerRow(offer) {
+  const row = document.createElement("div");
+  row.className = "offer";
+  const selectedProvider = offer && offer.pid;
+  const selectedTier = offer && offer.tier;
+  row.innerHTML =
+    "<select data-k='pid'>" + META.providers.map((provider) =>
+      "<option value='" + esc(provider.id) + "'" + (selectedProvider === provider.id ? " selected" : "") + ">" +
+      esc(provider.name) + "</option>").join("") + "</select>" +
+    "<select data-k='tier'>" + META.tiers.map((tier) =>
+      "<option" + (selectedTier === tier ? " selected" : "") + ">" + esc(tier) + "</option>").join("") + "</select>" +
+    "<input data-k='season' placeholder='S01' value='" + esc(offer ? offer.season : "") + "'>" +
+    "<input data-k='quality' placeholder='4K,HDR,中字' value='" +
+      esc(offer && offer.quality ? offer.quality.join(",") : "") + "'>" +
+    "<input data-k='price' placeholder='含在订阅' value='" + esc(offer ? offer.price : "") + "'>" +
+    "<label class='muted'><input data-k='verified' type='checkbox' style='width:auto'" +
+      (offer && offer.verified ? " checked" : "") + "> 可看</label>" +
+    "<button type='button' class='danger'>×</button>";
+  row.querySelector("button").addEventListener("click", () => row.remove());
+  return row;
+}
+
+async function openEditor(id) {
+  CURRENT = null;
+  $("#offers").innerHTML = "";
+  $("#editor-err").textContent = "";
+
+  if (id) {
+    const data = await api("/titles/" + encodeURIComponent(id));
+    const item = data.item;
+    CURRENT = item;
+    $("#editor-title").textContent = "编辑 · " + item.title;
+    $("#editor-sub").textContent = "ID " + item.id + " · 更新于 " + (item.updatedAt || "-");
+    $("#f-title").value = item.title;
+    $("#f-original").value = item.original;
+    $("#f-type").value = item.type;
+    $("#f-year").value = item.year;
+    $("#f-rating").value = item.rating;
+    $("#f-seasons").value = item.seasons == null ? "" : item.seasons;
+    $("#f-runtime").value = item.runtime || "";
+    $("#f-poster").value = item.poster || "";
+    $("#f-genres").value = (item.genres || []).join(", ");
+    $("#f-aliases").value = (item.aliases || []).join(", ");
+    $("#f-tags").value = (item.tags || []).join(", ");
+    $("#f-synopsis").value = item.synopsis || "";
+    $("#f-hot").checked = Boolean(item.hot);
+    (item.offers || []).forEach((offer) => $("#offers").appendChild(offerRow(offer)));
+  } else {
+    $("#editor-title").textContent = "新增作品";
+    $("#editor-sub").textContent = "ID 会由英文原名自动生成";
+    ["#f-title", "#f-original", "#f-runtime", "#f-poster", "#f-genres",
+     "#f-aliases", "#f-tags", "#f-synopsis"].forEach((selector) => { $(selector).value = ""; });
+    $("#f-type").value = META.types[0];
+    $("#f-year").value = new Date().getFullYear();
+    $("#f-rating").value = "0";
+    $("#f-seasons").value = "";
+    $("#f-hot").checked = false;
+    $("#offers").appendChild(offerRow(null));
+  }
+  $("#mask").classList.add("on");
+}
+
+function closeEditor() {
+  $("#mask").classList.remove("on");
+  CURRENT = null;
+}
+
+$("#mask").addEventListener("click", (event) => {
+  if (event.target === $("#mask")) closeEditor();
+});
+
+$("#btn-add-offer").addEventListener("click", () => $("#offers").appendChild(offerRow(null)));
+
+$("#btn-save").addEventListener("click", async () => {
+  $("#editor-err").textContent = "";
+  const offers = Array.from($("#offers").children).map((row) => {
+    const get = (key) => row.querySelector("[data-k='" + key + "']");
+    return {
+      pid: get("pid").value,
+      tier: get("tier").value,
+      season: get("season").value.trim(),
+      quality: split(get("quality").value),
+      price: get("price").value.trim(),
+      verified: get("verified").checked
+    };
+  });
+
+  const payload = {
+    title: $("#f-title").value.trim(),
+    original: $("#f-original").value.trim(),
+    type: $("#f-type").value,
+    year: Number($("#f-year").value),
+    rating: Number($("#f-rating").value),
+    seasons: $("#f-seasons").value === "" ? null : Number($("#f-seasons").value),
+    runtime: $("#f-runtime").value.trim() || null,
+    poster: $("#f-poster").value.trim() || null,
+    genres: split($("#f-genres").value),
+    aliases: split($("#f-aliases").value),
+    tags: split($("#f-tags").value),
+    synopsis: $("#f-synopsis").value.trim(),
+    hot: $("#f-hot").checked,
+    art: (CURRENT && CURRENT.art) || META.defaultArt,
+    offers
+  };
+
+  $("#btn-save").disabled = true;
+  try {
+    if (CURRENT) {
+      await api("/titles/" + encodeURIComponent(CURRENT.id), {
+        method: "PUT",
+        body: JSON.stringify(payload)
+      });
+    } else {
+      await api("/titles", { method: "POST", body: JSON.stringify(payload) });
+    }
+    closeEditor();
+    await loadList();
+  } catch (err) {
+    $("#editor-err").textContent = err.message;
+  } finally {
+    $("#btn-save").disabled = false;
+  }
+});
+
+boot().catch((err) => {
+  $("#login-sub").textContent = "连不上本地代理：" + err.message;
+});
+</script>
+</body>
+</html>

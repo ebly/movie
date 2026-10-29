@@ -18,7 +18,8 @@
     "pinyin:build": "node scripts/build-pinyin.mjs",
     "deploy": "node scripts/sync-catalog.mjs && wrangler deploy",
     "preflight": "node scripts/preflight.mjs",
-    "smoke:worker": "node --experimental-sqlite --no-warnings scripts/worker-smoke.mjs"
+    "smoke:worker": "node --experimental-sqlite --no-warnings scripts/worker-smoke.mjs",
+    "admin:local": "node admin-local/server.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.53.0"

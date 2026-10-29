@@ -1,0 +1,28 @@
+{
+	email {$ACME_EMAIL}
+}
+
+# 前台：Basic Auth 挡一层，再转发给 Node
+{$DOMAIN} {
+	encode zstd gzip
+	basic_auth {
+		{$BASIC_AUTH_USER} {$BASIC_AUTH_HASH}
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+	reverse_proxy app:4173
+}
+
+# PanSou：只接受 Docker 内网（app 容器）的请求，公网一律 403。
+# 注意 PANSOU_DOMAIN 的 DNS 不要套 Cloudflare 橙云，否则 remote_ip 会变成 CF 的 IP。
+{$PANSOU_DOMAIN} {
+	@internal remote_ip 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+	handle @internal {
+		reverse_proxy pansou:8888
+	}
+	respond "Forbidden" 403
+}

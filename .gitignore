@@ -16,3 +16,7 @@ worker/seed.sql
 # PanSou 本地源码入库（已打 sonic v1.15.5 补丁适配 Go 1.27），只排除运行时缓存
 pansou-main/cache/
 client/data/
+
+# 部署产物与密钥（.env 含密码与签名密钥，绝不入库）
+deploy/.env
+deploy/pansou-linux
