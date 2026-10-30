@@ -14,7 +14,7 @@ const MAX_BODY = 256 * 1024;
  * 所以由 Node 侧代持远程 Cookie：浏览器只跟本地后台打交道（本地会话），
  * 本地会话 → 远程 Cookie 的映射只存在进程内存里，重启即失效（和本地模式一致）。
  *
- * 代理层不做任何数据缓存：片库、看板、反馈全部实时打到线上，避免两份真相。
+ * 代理层不做任何数据缓存：看板、反馈全部实时打到线上，避免两份真相。
  */
 function extractCookie(response) {
   const list = typeof response.headers.getSetCookie === "function"
@@ -131,13 +131,15 @@ function createRemoteApi({ baseUrl, auth, fetcher = globalThis.fetch, timeoutMs 
     }
 
     const suffix = url.pathname.slice("/api".length) || "";
+    // 片库管理已移除：目录 / TMDB 接口不转发，与本地模式一致返回 404。
+    if (/^\/(titles|tmdb)(\/|$)/.test(suffix)) {
+      return sendError(res, 404, "not_found", "接口不存在");
+    }
     const target = base + "/api/admin" + suffix + (url.search || "");
     const body = req.method === "GET" || req.method === "HEAD" ? undefined : await readBody(req);
 
     const headers = { Cookie: binding.cookie };
     if (req.headers["content-type"]) headers["Content-Type"] = req.headers["content-type"];
-    // TMDB Key 是浏览器带的，需要透传；其它自定头一律不放行。
-    if (req.headers["x-tmdb-key"]) headers["x-tmdb-key"] = String(req.headers["x-tmdb-key"]).slice(0, 200);
 
     const upstream = await callRemote(target.slice(base.length), {
       method: req.method,

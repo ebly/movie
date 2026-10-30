@@ -145,6 +145,23 @@ test("开关未开启时整站 404，静态页面和 API 都不下发", async ()
   assert.equal(await result.text(), "404 Not Found");
 });
 
+test("片库 / TMDB 接口被拦下，不转发到主站", async () => {
+  const { result, calls } = await withFetch(
+    () => new Response("upstream", { status: 200 }),
+    () => worker.fetch(new Request("https://admin.yinto.top/api/titles"), ENV)
+  );
+  assert.equal(result.status, 404);
+  assert.equal(calls.length, 0);
+  assert.equal((await result.json()).error.code, "not_found");
+
+  const { result: tmdb, calls: tmdbCalls } = await withFetch(
+    () => new Response("upstream", { status: 200 }),
+    () => worker.fetch(new Request("https://admin.yinto.top/api/tmdb/search?q=x"), ENV)
+  );
+  assert.equal(tmdb.status, 404);
+  assert.equal(tmdbCalls.length, 0);
+});
+
 test("上游不可达时返回 502 JSON", async () => {
   const { result } = await withFetch(
     () => { throw new Error("boom"); },

@@ -8,8 +8,8 @@
  * 看板上「今天」的数字也就对不上直觉。这里用固定偏移做纯算术，不依赖 Intl、
  * 不依赖宿主机 TZ，Worker 与 Node 的结果必然相同。
  *
- * admin/shared/stats-time.js 是本文件的同步副本（admin/ 是自包含项目，
- * 与 admin/shared/tmdb.js 沿用同一约定），改这里请同步改那里。
+ * admin/shared/stats-time.js 是本文件的同步副本（admin/ 是自包含项目），
+ * 改这里请同步改那里。
  */
 
 const DAY_MS = 24 * 60 * 60 * 1000;

@@ -1,8 +1,8 @@
 "use strict";
 
 /**
- * 平台清单与作品类型：必须与前台项目（../movie/server/data/seed.js）保持一致。
- * 后台只用它做下拉选项与校验，不含任何片库数据。
+ * 平台清单：必须与前台项目（../movie/server/data/seed.js）保持一致。
+ * 后台只用它把点击事件里的平台编号还原成名称/配色，不含任何片库数据。
  */
 const PROVIDERS = {
   netflix:  { name: "Netflix",     short: "N",   color: "#e50914", fg: "#fff",     region: "海外",     search: "https://www.netflix.com/search?q=" },
@@ -19,6 +19,4 @@ const PROVIDERS = {
   bilibili: { name: "Bilibili",    short: "B",   color: "#00a1d6", fg: "#fff",     region: "中国大陆", search: "https://search.bilibili.com/all?keyword=" }
 };
 
-const TYPES = ["剧集", "电影", "动画", "纪录片"];
-
-module.exports = { PROVIDERS, TYPES };
+module.exports = { PROVIDERS };

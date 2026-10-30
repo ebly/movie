@@ -23,7 +23,7 @@ cd D:/workspace/movie/admin
 npm start
 ```
 
-后台在 http://127.0.0.1:4174 ，默认密码 `yingtu-admin`（用 `ADMIN_PASSWORD` 覆盖）。两个进程共用 `data/` 下的同一份文件：后台改完片库，前台刷新即生效，不用重启。
+后台在 http://127.0.0.1:4174 ，默认密码 `yingtu-admin`（用 `ADMIN_PASSWORD` 覆盖）。后台只读前台写下的行为与反馈日志，刷新看板即可看到最新数据，不用重启。
 
 开发时可以用自动重启：
 
@@ -166,11 +166,11 @@ D:/workspace/movie         前台  http://127.0.0.1:4173
 D:/workspace/movie/admin   后台  http://127.0.0.1:4174
 ```
 
-两个进程通过 `data/` 里的文件通信，没有 RPC、没有额外数据库：
+后台只读前台写下的日志，两个进程通过 `data/` 里的文件通信，没有 RPC、没有额外数据库：
 
-- `titles.json`：后台写，前台读。前台每次请求前比对文件 mtime，后台保存后刷新前台立即生效，不用重启。
 - `analytics.ndjson`：前台写，后台读。看板每次请求都重新载入。
 - `feedback.ndjson`：前台写，后台读。
+- `titles.json`：前台片库，后台不再读写（片库管理已从后台移除）。
 
 功能清单、接口列表、环境变量与后台鉴权说明见 [admin/README.md](admin/README.md)。
 
@@ -188,7 +188,7 @@ D:/workspace/movie/admin   后台  http://127.0.0.1:4174
 | `ANALYTICS_FILE` | `data/analytics.ndjson` | 匿名行为事件 |
 | `FEEDBACK_FILE` | `data/feedback.ndjson` | 前台反馈 |
 
-后台项目的环境变量（`ADMIN_PASSWORD`、`ADMIN_DATA_DIR`、`FRONTEND_URL`、`TMDB_API_KEY` 等）见 [admin/README.md](admin/README.md)。Workers 部署时改用 `wrangler secret put ADMIN_PASSWORD` / `ADMIN_SECRET`。
+后台项目的环境变量（`ADMIN_PASSWORD`、`ADMIN_DATA_DIR`、`FRONTEND_URL` 等）见 [admin/README.md](admin/README.md)。Workers 部署时改用 `wrangler secret put ADMIN_PASSWORD` / `ADMIN_SECRET`。
 
 ## 换品牌（改一处即可）
 
@@ -223,7 +223,7 @@ movie/
 │  └─ robots.txt          屏蔽 /admin/
 ├─ admin/                 管理后台：独立进程 4174 + 线上 Worker
 │  ├─ client/             后台界面（无依赖 SPA、看板与反馈收件箱）
-│  ├─ server/             本地后台：鉴权、片库编辑、看板、反馈、远程 BFF
+│  ├─ server/             本地后台：鉴权、看板、反馈、远程 BFF
 │  ├─ worker/             线上后台外壳：静态资源 + /api 反代
 │  ├─ test/               后台鉴权、远程代理与 Worker 代理测试
 │  ├─ wrangler.toml       线上后台部署配置（admin.yinto.top）

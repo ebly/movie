@@ -12,36 +12,9 @@ const BRAND = require("../config/brand.json");
 let server;
 let base;
 let tmpDir;
-let dataFile;
 let analyticsFile;
 let feedbackFile;
 let cookie;
-
-const NEW_TITLE = {
-  title: "测试剧集",
-  original: "Test Show",
-  year: 2025,
-  type: "剧集",
-  rating: 8.6,
-  seasons: 2,
-  runtime: null,
-  genres: ["剧情"],
-  synopsis: "一部只用于测试的剧集。",
-  aliases: ["测试别名"],
-  tags: ["测试"],
-  hot: true,
-  art: { p1: "#e7dfcf", p2: "#b8aaa0", p3: "#8c3327", ink: "#1b2422", motif: "orbit" },
-  offers: [
-    {
-      pid: "netflix",
-      tier: "订阅",
-      season: "S01",
-      quality: ["4K", "中字"],
-      price: "包含在订阅中",
-      verified: true
-    }
-  ]
-};
 
 function appendEvents(entries) {
   fs.appendFileSync(analyticsFile, entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n", "utf8");
@@ -50,11 +23,9 @@ function appendEvents(entries) {
 describe(`${BRAND.name} 管理后台（独立项目）`, () => {
   before(async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "yingtu-admin-"));
-    dataFile = path.join(tmpDir, "titles.json");
     analyticsFile = path.join(tmpDir, "analytics.ndjson");
     feedbackFile = path.join(tmpDir, "feedback.ndjson");
     server = http.createServer(createApp({
-      dataFile,
       analyticsFile,
       feedbackFile,
       adminPassword: "test-admin",
@@ -92,12 +63,9 @@ describe(`${BRAND.name} 管理后台（独立项目）`, () => {
   }
 
   test("后台接口默认都需要会话", async () => {
-    const titles = await call("/api/titles", { auth: false });
-    assert.equal(titles.response.status, 401);
-    assert.equal(titles.body.error.code, "unauthorized");
-
     const dashboard = await call("/api/dashboard", { auth: false });
     assert.equal(dashboard.response.status, 401);
+    assert.equal(dashboard.body.error.code, "unauthorized");
 
     const feedback = await call("/api/feedback", { auth: false });
     assert.equal(feedback.response.status, 401);
@@ -153,113 +121,22 @@ describe(`${BRAND.name} 管理后台（独立项目）`, () => {
     assert.equal(legacy.response.status, 404);
   });
 
-  test("meta 提供编辑器选项", async () => {
+  test("meta 只提供平台清单（看板用）", async () => {
     const { response, body } = await call("/api/meta");
     assert.equal(response.status, 200);
     assert.ok(body.providers.some((provider) => provider.id === "netflix"));
-    assert.deepEqual(body.types, ["剧集", "电影", "动画", "纪录片"]);
-    assert.ok(body.tiers.includes("订阅"));
-    assert.ok(body.qualities.includes("4K"));
-    assert.ok(body.motifs.includes("orbit"));
-    assert.ok(body.artPresets.length >= 3);
-    assert.ok(body.defaultArt.p1);
+    assert.ok(body.providers.some((provider) => provider.id === "max"));
+    // 片库编辑器已移除：不再下发类型/档位/画质/图案等编辑选项。
+    assert.deepEqual(Object.keys(body), ["providers"]);
   });
 
-  test("作品可以新增、编辑、删除，并带校验", async () => {
-    const unauthenticated = await fetch(base + "/api/titles", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(NEW_TITLE)
-    });
-    assert.equal(unauthenticated.status, 401);
-
-    const created = await call("/api/titles", { method: "POST", body: NEW_TITLE });
-    assert.equal(created.response.status, 201);
-    assert.equal(created.body.item.id, "test-show");
-    assert.equal(created.body.item.offers[0].quality[0], "4K");
-
-    const updated = await call("/api/titles/test-show", {
-      method: "PUT",
-      body: { ...NEW_TITLE, title: "测试剧集 第二版", rating: 9.1, hot: false }
-    });
-    assert.equal(updated.response.status, 200);
-    assert.equal(updated.body.item.title, "测试剧集 第二版");
-    assert.equal(updated.body.item.rating, 9.1);
-
-    const persisted = JSON.parse(fs.readFileSync(dataFile, "utf8"));
-    const row = persisted.items.find((item) => item.id === "test-show");
-    assert.equal(row.title, "测试剧集 第二版");
-    assert.ok(row.updatedAt);
-
-    const badRating = await call("/api/titles/test-show", {
-      method: "PUT",
-      body: { ...NEW_TITLE, rating: 11 }
-    });
-    assert.equal(badRating.response.status, 422);
-
-    const badProvider = await call("/api/titles", {
-      method: "POST",
-      body: { ...NEW_TITLE, original: "Bad Provider", offers: [{ pid: "nope", quality: ["4K"] }] }
-    });
-    assert.equal(badProvider.response.status, 422);
-
-    const noTitle = await call("/api/titles", {
-      method: "POST",
-      body: { ...NEW_TITLE, title: "  ", original: "No Title" }
-    });
-    assert.equal(noTitle.response.status, 422);
-
-    const missing = await call("/api/titles/not-real", { method: "DELETE" });
-    assert.equal(missing.response.status, 404);
-
-    const removed = await call("/api/titles/test-show", { method: "DELETE" });
-    assert.equal(removed.response.status, 200);
-
-    const list = await call("/api/titles");
-    assert.ok(!list.body.items.some((item) => item.id === "test-show"));
-  });
-
-  test("海报地址校验：只接受 https 图片直链", async () => {
-    const POSTER = "https://img.example.com/poster-400x600.jpg";
-
-    const created = await call("/api/titles", {
-      method: "POST",
-      body: { ...NEW_TITLE, poster: POSTER }
-    });
-    assert.equal(created.response.status, 201);
-    assert.equal(created.body.item.poster, POSTER);
-
-    const list = await call("/api/titles");
-    assert.equal(list.body.items.find((item) => item.id === "test-show").poster, POSTER);
-
-    const cleared = await call("/api/titles/test-show", {
-      method: "PUT",
-      body: { ...NEW_TITLE, poster: "   " }
-    });
-    assert.equal(cleared.response.status, 200);
-    assert.equal(cleared.body.item.poster, null);
-
-    for (const bad of ["http://img.example.com/a.jpg", "javascript:alert(1)", "not a url", "ftp://img.example.com/a.jpg"]) {
-      const rejected = await call("/api/titles/test-show", {
-        method: "PUT",
-        body: { ...NEW_TITLE, poster: bad }
-      });
-      assert.equal(rejected.response.status, 422, `${bad} 应当被拒绝`);
+  test("片库与 TMDB 接口已彻底移除", async () => {
+    for (const pathname of ["/api/titles", "/api/titles/test-show", "/api/tmdb/search?q=x"]) {
+      const { response } = await call(pathname);
+      assert.equal(response.status, 404, `${pathname} 应当不存在`);
     }
-
-    await call("/api/titles/test-show", { method: "DELETE" });
-  });
-
-  test("别人（前台进程）改过的片库，后台能立刻读到", async () => {
-    const external = JSON.parse(fs.readFileSync(dataFile, "utf8"));
-    external.items.push({ ...NEW_TITLE, id: "external-write", title: "外部写入的作品" });
-    fs.writeFileSync(dataFile, JSON.stringify(external, null, 2) + "\n", "utf8");
-    // 文件系统 mtime 精度可能是秒级，保证下一次比对一定看到差异。
-    const future = new Date(Date.now() + 2000);
-    fs.utimesSync(dataFile, future, future);
-
-    const list = await call("/api/titles");
-    assert.ok(list.body.items.some((item) => item.id === "external-write"), "应当读到外部写入的作品");
+    const created = await call("/api/titles", { method: "POST", body: { title: "x" } });
+    assert.equal(created.response.status, 404);
   });
 
   test("看板会重新读取前台进程追加的统计文件", async () => {
@@ -389,7 +266,7 @@ describe(`${BRAND.name} 管理后台（独立项目）`, () => {
     assert.equal(logout.response.status, 200);
     assert.match(logout.response.headers.get("set-cookie") || "", /Max-Age=0/);
 
-    const after = await call("/api/titles");
+    const after = await call("/api/dashboard");
     assert.equal(after.response.status, 401);
   });
 });

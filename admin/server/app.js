@@ -2,14 +2,13 @@
 
 const path = require("path");
 const BRAND = require("../config/brand.json");
-const { TitleRepository } = require("./repository");
 const { AnalyticsStore } = require("./analytics");
 const { FeedbackStore } = require("./feedback");
 const { AdminAuth } = require("./adminAuth");
 const { createAdminApi } = require("./admin");
 const { createRemoteApi } = require("./remote");
 const { serveStatic } = require("./lib/static");
-const { PROVIDERS, TYPES } = require("./providers");
+const { PROVIDERS } = require("./providers");
 const { HttpError, sendJSON, sendText, applySecurityHeaders } = require("./lib/http");
 
 const DEFAULT_DATA_DIR = path.resolve(__dirname, "..", "..", "data");
@@ -31,10 +30,10 @@ function publicBrand(brand) {
 }
 
 /**
- * 映途管理后台（独立进程）。两种数据源模式：
+ * 映途管理后台（独立进程）。只读看板与反馈，不含片库编辑。两种数据源模式：
  *
- * - 本地模式（默认）：读写 ../movie/data 下的文件。后台写 titles.json，前台读；
- *   前台写 analytics/feedback，后台读。两边不缓存过期数据，改完刷新前台就能看到。
+ * - 本地模式（默认）：读取 ../movie/data 下的 analytics/feedback 文件（由前台进程写入）。
+ *   后台只读、不缓存过期数据，前台追加后刷新即可看到。
  * - 远程模式（设置 REMOTE_API_BASE）：后台当 BFF 代理，所有 /api/* 转发到线上
  *   Worker 的 /api/admin/*，数据以 D1 为准，不碰本地文件。
  */
@@ -48,7 +47,6 @@ function createApp(options = {}) {
   const mode = remoteBase ? "remote" : "local";
 
   const dataDir = options.dataDir || process.env.ADMIN_DATA_DIR || DEFAULT_DATA_DIR;
-  const dataFile = options.dataFile || process.env.DATA_FILE || path.join(dataDir, "titles.json");
   const analyticsFile = options.analyticsFile || process.env.ANALYTICS_FILE || path.join(dataDir, "analytics.ndjson");
   const feedbackFile = options.feedbackFile || process.env.FEEDBACK_FILE || path.join(dataDir, "feedback.ndjson");
   // 远程模式下前台就是那个 Worker（同一个域名同时提供前台与 API）。
@@ -64,16 +62,13 @@ function createApp(options = {}) {
   if (mode === "remote") {
     adminApi = createRemoteApi({ baseUrl: remoteBase, auth, logger: dataLogger });
   } else {
-    const repository = options.repository || new TitleRepository({ file: dataFile, logger: dataLogger });
     const analytics = options.analytics || new AnalyticsStore({ file: analyticsFile, logger: dataLogger });
     const feedback = options.feedback || new FeedbackStore(feedbackFile);
     adminApi = createAdminApi({
-      repository,
       analytics,
       auth,
       feedback,
-      providers: PROVIDERS,
-      types: TYPES
+      providers: PROVIDERS
     });
   }
   const clientRoot = path.resolve(options.clientRoot || path.join(__dirname, "..", "client"));

@@ -11,7 +11,6 @@ const BRAND = require("../config/brand.json");
 
 const REMOTE_PASSWORD = "remote-pass";
 const REMOTE_TOKEN = "remote-token-abc";
-const REMOTE_TITLE = { id: "remote-only", title: "线上作品", type: "电影", offers: [] };
 
 let upstream;
 let upstreamUrl;
@@ -51,7 +50,6 @@ function startUpstream() {
         search: url.search,
         cookie: req.headers.cookie || "",
         contentType: req.headers["content-type"] || "",
-        tmdbKey: req.headers["x-tmdb-key"] || "",
         body
       });
 
@@ -79,17 +77,14 @@ function startUpstream() {
         return json(res, 401, { error: { code: "unauthorized", message: "请先登录管理后台" } });
       }
 
-      if (url.pathname === "/api/admin/titles" && req.method === "GET") {
-        return json(res, 200, { total: 1, items: [REMOTE_TITLE] });
-      }
       if (url.pathname === "/api/admin/meta") {
-        return json(res, 200, { providers: [{ id: "netflix", name: "Netflix" }], types: ["电影"] });
+        return json(res, 200, { providers: [{ id: "netflix", name: "Netflix" }] });
       }
       if (url.pathname === "/api/admin/dashboard") {
         return json(res, 200, { range: { days: 7 }, overview: { searches: 9 }, trend: [], usingDefaultPassword: false });
       }
-      if (url.pathname === "/api/admin/titles/remote-only" && req.method === "DELETE") {
-        return json(res, 200, { ok: true, id: "remote-only" });
+      if (url.pathname === "/api/admin/feedback") {
+        return json(res, 200, { total: 2, matched: 2, offset: 0, items: [], stats: { week: 2, contact: 1 } });
       }
 
       return json(res, 404, { error: { code: "not_found", message: "接口不存在" } });
@@ -107,10 +102,9 @@ describe(`${BRAND.name} 管理后台 · 远程模式`, () => {
     seen = [];
     await startUpstream();
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "yingtu-remote-"));
-    // 故意指向一个不存在的片库文件：远程模式就不该碰本地数据。
+    // 故意指向不存在的数据文件：远程模式就不该碰本地数据。
     server = http.createServer(createApp({
       remoteApiBase: upstreamUrl,
-      dataFile: path.join(tmpDir, "does-not-exist.json"),
       analyticsFile: path.join(tmpDir, "does-not-exist.ndjson"),
       feedbackFile: path.join(tmpDir, "does-not-exist.ndjson"),
       logger: false
@@ -189,40 +183,39 @@ describe(`${BRAND.name} 管理后台 · 远程模式`, () => {
   });
 
   test("后台请求转发到线上 /api/admin/*，并代持远程 Cookie", async () => {
-    const list = await call("/api/titles");
-    assert.equal(list.response.status, 200);
-    assert.equal(list.body.total, 1);
-    assert.equal(list.body.items[0].id, "remote-only");
-
-    const hit = seen.filter((entry) => entry.path === "/api/admin/titles").pop();
-    assert.ok(hit, "应转发到 /api/admin/titles");
-    assert.equal(hit.cookie, `${BRAND.cookies.admin}=${REMOTE_TOKEN}`, "转发的必须是远程 Cookie，不是本地 Cookie");
+    const board = await call("/api/dashboard?days=7");
+    assert.equal(board.response.status, 200);
+    assert.equal(board.body.overview.searches, 9);
+    const boardHit = seen.filter((entry) => entry.path === "/api/admin/dashboard").pop();
+    assert.ok(boardHit, "应转发到 /api/admin/dashboard");
+    assert.equal(boardHit.cookie, `${BRAND.cookies.admin}=${REMOTE_TOKEN}`, "转发的必须是远程 Cookie，不是本地 Cookie");
+    assert.equal(boardHit.search, "?days=7", "查询串要一起转发");
 
     const meta = await call("/api/meta");
     assert.equal(meta.response.status, 200);
-    assert.equal(meta.body.types[0], "电影");
+    assert.equal(meta.body.providers[0].id, "netflix");
 
-    const board = await call("/api/dashboard?days=7");
-    assert.equal(board.body.overview.searches, 9);
-    const boardHit = seen.filter((entry) => entry.path === "/api/admin/dashboard").pop();
-    assert.equal(boardHit.search, "?days=7", "查询串要一起转发");
+    const inbox = await call("/api/feedback?limit=5");
+    assert.equal(inbox.response.status, 200);
+    assert.equal(inbox.body.total, 2);
   });
 
-  test("写请求的方法、请求体与 TMDB 头都透传", async () => {
-    const removed = await call("/api/titles/remote-only", {
-      method: "DELETE",
-      headers: { "x-tmdb-key": "tmdb-key-123" }
-    });
-    assert.equal(removed.response.status, 200);
-    const hit = seen.filter((entry) => entry.path === "/api/admin/titles/remote-only").pop();
-    assert.ok(hit);
-    assert.equal(hit.method, "DELETE");
-    assert.equal(hit.tmdbKey, "tmdb-key-123");
+  test("片库 / TMDB 接口被拦下，不转发到线上", async () => {
+    for (const pathname of ["/api/titles", "/api/titles/remote-only", "/api/tmdb/search?q=x"]) {
+      const { response } = await call(pathname);
+      assert.equal(response.status, 404, `${pathname} 应当被拦下`);
+    }
+    const removed = await call("/api/titles/remote-only", { method: "DELETE" });
+    assert.equal(removed.response.status, 404);
+    assert.ok(
+      !seen.some((entry) => entry.path.startsWith("/api/admin/titles") || entry.path.startsWith("/api/admin/tmdb")),
+      "目录请求不应到达线上"
+    );
   });
 
   test("线上会话过期后本地回到未登录，且绑定被清掉", async () => {
     expireRemote = true;
-    const expired = await call("/api/titles");
+    const expired = await call("/api/dashboard");
     assert.equal(expired.response.status, 401);
 
     const session = await call("/api/session");
@@ -260,8 +253,8 @@ describe(`${BRAND.name} 管理后台 · 远程模式`, () => {
   });
 
   test("跨站写请求被拒，登出会通知线上", async () => {
-    const crossOrigin = await call("/api/titles/remote-only", {
-      method: "DELETE",
+    const crossOrigin = await call("/api/dashboard", {
+      method: "POST",
       headers: { Origin: "https://evil.example.com" }
     });
     assert.equal(crossOrigin.response.status, 403);
@@ -270,7 +263,7 @@ describe(`${BRAND.name} 管理后台 · 远程模式`, () => {
     assert.equal(logout.response.status, 200);
     assert.match(logout.response.headers.get("set-cookie") || "", /Max-Age=0/);
 
-    const after = await call("/api/titles");
+    const after = await call("/api/dashboard");
     assert.equal(after.response.status, 401);
 
     assert.ok(
@@ -279,7 +272,7 @@ describe(`${BRAND.name} 管理后台 · 远程模式`, () => {
     );
   });
 
-  test("远程模式不会去读本地片库文件", () => {
-    assert.equal(fs.existsSync(path.join(tmpDir, "does-not-exist.json")), false);
+  test("远程模式不会去读本地数据文件", () => {
+    assert.equal(fs.existsSync(path.join(tmpDir, "does-not-exist.ndjson")), false);
   });
 });

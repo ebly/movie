@@ -40,7 +40,7 @@ function json(status, payload, extraHeaders = {}) {
 
 /**
  * 品牌与前台地址：后台客户端需要 brand / frontendUrl，还要 mode=remote 才会
- * 显示「线上 D1」并隐藏只读的片库入口。主站 /api/admin/* 没有这个接口，
+ * 显示「线上 D1」。主站 /api/admin/* 没有这个接口，
  * 这里转发到公开的 /api/bootstrap 再挑白名单字段。
  */
 async function handleBootstrap() {
@@ -70,6 +70,10 @@ async function handleApi(request, url) {
   }
 
   const suffix = url.pathname.slice(API_PREFIX.length);
+  // 片库管理已移除：后台只做只读看板与反馈，目录 / TMDB 接口一律不转发。
+  if (/^\/(titles|tmdb)(\/|$)/.test(suffix)) {
+    return json(404, { error: { code: "not_found", message: "接口不存在" } });
+  }
   const target = `${UPSTREAM}/api/admin${suffix}${url.search}`;
 
   const headers = new Headers();
@@ -82,9 +86,6 @@ async function handleApi(request, url) {
   if (session) headers.set("cookie", session);
   const contentType = request.headers.get("content-type");
   if (contentType) headers.set("content-type", contentType);
-  // TMDB Key 由浏览器临时填写，需要透传到主站；其它自定头一律不放行。
-  const tmdbKey = request.headers.get("x-tmdb-key");
-  if (tmdbKey) headers.set("x-tmdb-key", tmdbKey.slice(0, 200));
   // 主站按 cf-connecting-ip 限流登录；子请求里它未必是访客 IP，显式带上原值兜底。
   const clientIp = request.headers.get("cf-connecting-ip");
   if (clientIp) headers.set("x-forwarded-for", clientIp);
