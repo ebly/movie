@@ -310,6 +310,7 @@ function catalogFromRow(row) {
     kind: row.kind || "电影",
     rating: Number.isFinite(rating) && rating > 0 ? rating : null,
     featured: Number(row.featured) ? 1 : 0,
+    latest: Number(row.latest) ? 1 : 0,
     pan: row.pan || "quark",
     link: row.link || "",
     password: row.password || "",
@@ -351,6 +352,7 @@ function catalogInput(body) {
     rating: Number.isFinite(rating) && rating > 0 ? Math.round(rating * 10) / 10 : null,
     pan,
     featured: (body.featured === true || body.featured === 1 || body.featured === "1" || body.featured === "on") ? 1 : 0,
+    latest: (body.latest === true || body.latest === 1 || body.latest === "1" || body.latest === "on") ? 1 : 0,
     link,
     password: cleanText(body.password, 64),
     note: cleanText(body.note, 200),
@@ -444,7 +446,8 @@ async function handleApi(ctx) {
       year: entry.year,
       kind: entry.kind,
       rating: entry.rating,
-      featured: entry.featured
+      featured: entry.featured,
+      latest: entry.latest
     }));
     return sendJSON(ctx, 200, { items });
   }
@@ -800,8 +803,8 @@ async function handleAdmin(ctx) {
       const input = catalogInput(body);
       const now = new Date().toISOString();
       const res = await ctx.env.DB.prepare(
-        "INSERT INTO catalog (title, year, kind, rating, pan, featured, link, password, note, sort, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-      ).bind(input.title, input.year, input.kind, input.rating, input.pan, input.featured, input.link, input.password, input.note, input.sort, now, now).run();
+        "INSERT INTO catalog (title, year, kind, rating, pan, featured, latest, link, password, note, sort, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      ).bind(input.title, input.year, input.kind, input.rating, input.pan, input.featured, input.latest, input.link, input.password, input.note, input.sort, now, now).run();
       const id = res.meta && res.meta.last_row_id;
       const created = (await catalogAll(ctx.env)).find((entry) => entry.id === id) || null;
       return sendJSON(ctx, 201, { item: created });
@@ -816,8 +819,8 @@ async function handleAdmin(ctx) {
       const input = catalogInput(body);
       const now = new Date().toISOString();
       const res = await ctx.env.DB.prepare(
-        "UPDATE catalog SET title = ?, year = ?, kind = ?, rating = ?, pan = ?, featured = ?, link = ?, password = ?, note = ?, sort = ?, updated_at = ? WHERE id = ?"
-      ).bind(input.title, input.year, input.kind, input.rating, input.pan, input.featured, input.link, input.password, input.note, input.sort, now, id).run();
+        "UPDATE catalog SET title = ?, year = ?, kind = ?, rating = ?, pan = ?, featured = ?, latest = ?, link = ?, password = ?, note = ?, sort = ?, updated_at = ? WHERE id = ?"
+      ).bind(input.title, input.year, input.kind, input.rating, input.pan, input.featured, input.latest, input.link, input.password, input.note, input.sort, now, id).run();
       if (!res.meta || !res.meta.changes) return sendError(ctx, 404, "not_found", "条目不存在");
       const updated = (await catalogAll(ctx.env)).find((entry) => entry.id === id) || null;
       return sendJSON(ctx, 200, { item: updated });

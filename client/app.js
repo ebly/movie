@@ -782,17 +782,31 @@ function hotChipHTML(item) {
 }
 
 /** 「大家都在搜」取热门榜前 20 个片名，分批显示。 */
-function applyHotChips(items) {
+function applyHotChips(items, latestTitles = []) {
   const box = document.getElementById("home-hot");
-  if (!box || !Array.isArray(items)) return;
-  hotTitlePool = items
-    .map((item) => (item && item.title ? item.title : ""))
-    .filter(Boolean)
-    .slice(0, HOT_PAGE * 2)
-    .map((title, index) => ({
-      title,
-      hue: Math.round((HOT_HUE_START + index * HUE_STEP) % 360)
-    }));
+  if (!box) return;
+  const titles = [];
+  const seen = new Set();
+  const pushTitle = (title) => {
+    const key = titleKey(title);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    titles.push(title);
+  };
+  // 片库「最新」排最前，可无限添加；豆瓣热门补足（最多 20 个）
+  for (const title of (Array.isArray(latestTitles) ? latestTitles : [])) if (title) pushTitle(title);
+  let doubanAdded = 0;
+  for (const item of (Array.isArray(items) ? items : [])) {
+    if (doubanAdded >= HOT_PAGE * 2) break;
+    if (!item || !item.title) continue;
+    const before = titles.length;
+    pushTitle(item.title);
+    if (titles.length > before) doubanAdded += 1;
+  }
+  hotTitlePool = titles.map((title, index) => ({
+    title,
+    hue: Math.round((HOT_HUE_START + index * HUE_STEP) % 360)
+  }));
   if (!hotTitlePool.length) return;
   const first = hotTitlePool.slice(0, HOT_PAGE);
   const needsMore = hotTitlePool.length > HOT_PAGE;
@@ -881,7 +895,17 @@ async function loadHotChips() {
   } catch (err) {
     // 热门榜失败就退回上次成功的片名，缓存也空就不显示这一行
   }
-  applyHotChips(items);
+  let latestTitles = [];
+  try {
+    const cat = await API.catalog();
+    latestTitles = (cat && Array.isArray(cat.items))
+      ? cat.items.filter((item) => item && item.latest).map((item) => item.title)
+      : [];
+  } catch (err) {
+    latestTitles = [];
+  }
+  if (location.pathname !== "/") return;
+  applyHotChips(items, latestTitles);
 }
 
 function renderHome() {

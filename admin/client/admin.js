@@ -1172,11 +1172,12 @@ function renderCatalogList() {
       </div>
       <div class="catalog-meta">
         <span class="tag">${esc(catalogPanLabel(entry.pan))}</span>
-        ${entry.featured ? `<span class="tag amber">最热</span>` : ""}
         ${entry.password ? `<span>提取码 ${esc(entry.password)}</span>` : ""}
         <span class="catalog-link" title="${esc(entry.link)}">${esc(entry.link)}</span>
       </div>
       <div class="catalog-actions">
+        <label class="catalog-check" title="加入首页最热"><input type="checkbox" data-catalog-flag="featured" data-catalog-id="${entry.id}"${entry.featured ? " checked" : ""}> 最热</label>
+        <label class="catalog-check" title="加入「大家都在搜」最前"><input type="checkbox" data-catalog-flag="latest" data-catalog-id="${entry.id}"${entry.latest ? " checked" : ""}> 最新</label>
         <button class="btn btn-ghost btn-sm" type="button" data-catalog-share="${entry.id}">分享</button>
         <button class="btn btn-ghost btn-sm" type="button" data-catalog-edit="${entry.id}">编辑</button>
         <button class="btn btn-ghost btn-sm" type="button" data-catalog-del="${entry.id}">删除</button>
@@ -1196,6 +1197,7 @@ function renderCatalogList() {
   }));
   box.querySelectorAll("[data-catalog-del]").forEach((btn) => btn.addEventListener("click", () => deleteCatalog(Number(btn.dataset.catalogDel))));
   box.querySelectorAll("[data-catalog-share]").forEach((btn) => btn.addEventListener("click", () => shareCatalog(Number(btn.dataset.catalogShare))));
+  box.querySelectorAll("[data-catalog-flag]").forEach((cb) => cb.addEventListener("change", () => toggleCatalogFlag(Number(cb.dataset.catalogId), cb.dataset.catalogFlag, cb.checked)));
 }
 
 function openCatalogForm(entry) {
@@ -1214,7 +1216,8 @@ function openCatalogForm(entry) {
       <div class="field"><label>提取码</label><input name="password" type="text" value="${esc(e.password || "")}"></div>
       <div class="field"><label>排序（小的在前）</label><input name="sort" type="number" value="${Number(e.sort) || 0}"></div>
       <div class="field full"><label>备注 <span class="optional">可选</span></label><input name="note" type="text" value="${esc(e.note || "")}"></div>
-      <div class="field full"><label class="catalog-check"><input type="checkbox" name="featured"${e.featured ? " checked" : ""}> 加入最热（勾选后出现在首页最热顶部）</label></div>
+      <div class="field full"><label class="catalog-check"><input type="checkbox" name="featured"${e.featured ? " checked" : ""}> 加入最热（勾选后出现在首页最热顶部，最多 11 条）</label></div>
+      <div class="field full"><label class="catalog-check"><input type="checkbox" name="latest"${e.latest ? " checked" : ""}> 加入最新（勾选后出现在「大家都在搜」最前面，可无限添加）</label></div>
       <div class="field full" style="display:none" id="catalog-error"><p class="form-error show" style="margin:0"></p></div>
       <div class="field full" style="display:flex;gap:10px">
         <button class="btn btn-accent" type="submit">${entry ? "保存修改" : "添加"}</button>
@@ -1244,6 +1247,7 @@ function openCatalogForm(entry) {
       password: String(fd.get("password") || "").trim(),
       note: String(fd.get("note") || "").trim(),
       featured: fd.get("featured") ? 1 : 0,
+      latest: fd.get("latest") ? 1 : 0,
       sort: fd.get("sort") ? Number(fd.get("sort")) : 0
     };
     const errBox = form.querySelector("#catalog-error");
@@ -1280,6 +1284,33 @@ async function shareCatalog(id) {
   } catch (err) {
     showToast("无法自动复制，请手动复制链接", "error");
     window.prompt("复制分享链接：", url);
+  }
+}
+
+async function toggleCatalogFlag(id, field, on) {
+  const entry = (state.catalog || []).find((item) => item.id === id);
+  if (!entry || (field !== "featured" && field !== "latest")) return;
+  const payload = {
+    title: entry.title,
+    year: entry.year,
+    kind: entry.kind,
+    rating: entry.rating,
+    pan: entry.pan,
+    link: entry.link,
+    password: entry.password,
+    note: entry.note,
+    sort: entry.sort || 0,
+    featured: entry.featured,
+    latest: entry.latest
+  };
+  payload[field] = on ? 1 : 0;
+  try {
+    await api(`/api/catalog/${id}`, { method: "PUT", body: payload });
+    showToast(`${field === "featured" ? "最热" : "最新"}已${on ? "开启" : "关闭"}`);
+    await loadCatalog();
+  } catch (err) {
+    showToast(`操作失败：${err.message}`, "error");
+    await loadCatalog();
   }
 }
 
