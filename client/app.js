@@ -523,9 +523,23 @@ function motifSVG(art) {
 }
 
 /** 外部海报直链（后台可填）。图片盖在程序化海报之上，加载失败由全局 error 监听回退到生成的封面。 */
+function imageSrc(url) {
+  if (typeof url !== "string" || !url) return "";
+  try {
+    const parsed = new URL(url, location.origin);
+    // 豆瓣图片有防盗链，统一走 Worker 代理（带豆瓣 Referer）。
+    if (/(^|\.)doubanio\.com$/i.test(parsed.hostname)) {
+      return `/api/img?src=${encodeURIComponent(parsed.href)}`;
+    }
+    return url;
+  } catch (err) {
+    return url;
+  }
+}
+
 function posterImgHTML(item) {
   if (!item.poster) return "";
-  return `<img class="poster-img" src="${esc(item.poster)}" alt="${esc(t("poster.alt", { title: item.title }))}" loading="lazy" decoding="async">`;
+  return `<img class="poster-img" src="${esc(imageSrc(item.poster))}" alt="${esc(t("poster.alt", { title: item.title }))}" loading="lazy" decoding="async">`;
 }
 
 function posterHTML(item) {

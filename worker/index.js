@@ -367,6 +367,45 @@ async function prepare(ctx) {
 
 /* ---------------- 公开 API（对齐 server/api.js） ---------------- */
 
+const IMG_HOST = /(^|\.)doubanio\.com$/i;
+
+// 豆瓣图片防盗链：部分图只认豆瓣自己的 Referer（yinto.top 会 403，无 Referer 418）。
+// 浏览器改不了 Referer，所以在 Worker 侧带豆瓣 Referer 取图并按天缓存。
+async function handleImageProxy(ctx) {
+  const { request, url } = ctx;
+  if (request.method !== "GET" && request.method !== "HEAD") return methodNotAllowed(ctx, "GET");
+  const src = url.searchParams.get("src") || "";
+  let target;
+  try {
+    target = new URL(src);
+  } catch (err) {
+    return sendText(ctx, 400, "400 · 图片地址不合法");
+  }
+  if (!/^https?:$/.test(target.protocol) || !IMG_HOST.test(target.hostname)) {
+    return sendText(ctx, 403, "403 · 仅允许豆瓣图片");
+  }
+  let upstream;
+  try {
+    upstream = await fetch(target.href, {
+      headers: { Referer: "https://movie.douban.com/", Accept: "image/*,*/*" },
+      cf: { cacheEverything: true, cacheTtl: 86400 }
+    });
+  } catch (err) {
+    return sendText(ctx, 502, "502 · 图片获取失败");
+  }
+  if (!upstream.ok) return sendText(ctx, upstream.status === 404 ? 404 : 502, "图片获取失败");
+  const contentType = upstream.headers.get("content-type") || "image/jpeg";
+  if (!/^image\//i.test(contentType)) return sendText(ctx, 502, "非图片响应");
+  return new Response(request.method === "HEAD" ? null : upstream.body, {
+    status: 200,
+    headers: {
+      "content-type": contentType,
+      "cache-control": "public, max-age=86400",
+      "x-content-type-options": "nosniff"
+    }
+  });
+}
+
 async function handleApi(ctx) {
   const { url, request, store, analytics, feedback } = ctx;
   const path = url.pathname;
@@ -934,6 +973,10 @@ export default {
       // PanSou searches do not read D1 or require the movie catalog.
       if (path === "/api/pan/search" || path === "/api/pan/search/" || path === "/api/quark/search" || path === "/api/quark/search/") {
         return await handleQuarkSearch(ctx);
+      }
+
+      if (path === "/api/img" || path === "/api/img/") {
+        return await handleImageProxy(ctx);
       }
 
       if (path === "/api" || path.startsWith("/api/")) {
