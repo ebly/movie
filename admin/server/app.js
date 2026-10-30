@@ -12,7 +12,7 @@ const { serveStatic } = require("./lib/static");
 const { PROVIDERS, TYPES } = require("./providers");
 const { HttpError, sendJSON, sendText, applySecurityHeaders } = require("./lib/http");
 
-const DEFAULT_DATA_DIR = path.resolve(__dirname, "..", "..", "movie", "data");
+const DEFAULT_DATA_DIR = path.resolve(__dirname, "..", "..", "data");
 const DEFAULT_FRONTEND_URL = "http://127.0.0.1:4173";
 
 /**

@@ -16,10 +16,10 @@ npm start
 ```
 
 - 前台：http://127.0.0.1:4173
-- 后台：**不在这里**。另开一个终端启动后台项目：
+- 后台：**不在前台进程里**。另开一个终端启动后台：
 
 ```bash
-cd D:/workspace/movie-admin
+cd D:/workspace/movie/admin
 npm start
 ```
 
@@ -157,24 +157,24 @@ Worker 需使用可达的远程地址，不能填开发机 `127.0.0.1`。敏感�
 
 测试：`npm run test:pansou`（模拟上游、Node 与 Worker bundle），另跑 `npm test` 检查原功能。通过模拟测试不代表所有真实外部插件可用。
 
-## 管理后台（已拆成独立项目）
+## 管理后台（`admin/`，独立进程）
 
-后台不在本仓库里，在 [../movie-admin](../movie-admin)。它自己一个进程、自己一个端口（默认 `4174`），界面不再挂在 `/admin/` 下。
+后台代码在本仓库的 [admin](admin) 目录，但仍是自己一个进程、自己一个端口（默认 `4174`），界面不挂在 `/admin/` 下。
 
 ```
-D:/workspace/movie        前台  http://127.0.0.1:4173
-D:/workspace/movie-admin  后台  http://127.0.0.1:4174
+D:/workspace/movie         前台  http://127.0.0.1:4173
+D:/workspace/movie/admin   后台  http://127.0.0.1:4174
 ```
 
-两个项目通过 `data/` 里的文件通信，没有 RPC、没有额外数据库：
+两个进程通过 `data/` 里的文件通信，没有 RPC、没有额外数据库：
 
 - `titles.json`：后台写，前台读。前台每次请求前比对文件 mtime，后台保存后刷新前台立即生效，不用重启。
 - `analytics.ndjson`：前台写，后台读。看板每次请求都重新载入。
 - `feedback.ndjson`：前台写，后台读。
 
-功能清单、接口列表、环境变量与后台鉴权说明见 [movie-admin/README.md](../movie-admin/README.md)。
+功能清单、接口列表、环境变量与后台鉴权说明见 [admin/README.md](admin/README.md)。
 
-线上另有一份后台界面准备部署在 https://admin.yinto.top（Worker `yingtu-admin`）：静态文件来自 `movie-admin/client`，`/api/*` 反代到本 Worker 的 `/api/admin/*`。目前访问控制还没就绪，整站被开关关掉、一律返回 404；部署命令与启用步骤见 [movie-admin/README.md](../movie-admin/README.md#线上后台adminyintotop)。
+线上另有一份后台界面准备部署在 https://admin.yinto.top（Worker `yingtu-admin`）：静态文件来自 `admin/client`，`/api/*` 反代到本 Worker 的 `/api/admin/*`。目前访问控制还没就绪，整站被开关关掉、一律返回 404；部署命令与启用步骤见 [admin/README.md](admin/README.md#线上后台adminyintotop)。
 
 本仓库的 `server/` 不含任何后台代码：`/admin`、`/admin/*`、`/api/admin/*` 在本地 Node 服务上一律 404，`client/admin/` 已删除，`robots.txt` 也不再需要屏蔽后台路径。
 
@@ -188,7 +188,7 @@ D:/workspace/movie-admin  后台  http://127.0.0.1:4174
 | `ANALYTICS_FILE` | `data/analytics.ndjson` | 匿名行为事件 |
 | `FEEDBACK_FILE` | `data/feedback.ndjson` | 前台反馈 |
 
-后台项目的环境变量（`ADMIN_PASSWORD`、`ADMIN_DATA_DIR`、`FRONTEND_URL`、`TMDB_API_KEY` 等）见 [movie-admin/README.md](../movie-admin/README.md)。Workers 部署时改用 `wrangler secret put ADMIN_PASSWORD` / `ADMIN_SECRET`。
+后台项目的环境变量（`ADMIN_PASSWORD`、`ADMIN_DATA_DIR`、`FRONTEND_URL`、`TMDB_API_KEY` 等）见 [admin/README.md](admin/README.md)。Workers 部署时改用 `wrangler secret put ADMIN_PASSWORD` / `ADMIN_SECRET`。
 
 ## 换品牌（改一处即可）
 
@@ -220,11 +220,14 @@ movie/
 │  ├─ api.js              同源 API 客户端
 │  ├─ i18n.js             中英文案表、语言切换与静态节点替换
 │  ├─ app.js              前台哈希路由、渲染、筛选、主题
-│  ├─ robots.txt          屏蔽 /admin/
-│  └─ admin/
-│     ├─ index.html       后台壳
-│     ├─ admin.css        后台设计系统、表格、编辑器、响应式
-│     └─ admin.js         登录、看板、片库、编辑器、反馈（无依赖 SPA）
+│  └─ robots.txt          屏蔽 /admin/
+├─ admin/                 管理后台：独立进程 4174 + 线上 Worker
+│  ├─ client/             后台界面（无依赖 SPA、看板与反馈收件箱）
+│  ├─ server/             本地后台：鉴权、片库编辑、看板、反馈、远程 BFF
+│  ├─ worker/             线上后台外壳：静态资源 + /api 反代
+│  ├─ test/               后台鉴权、远程代理与 Worker 代理测试
+│  ├─ wrangler.toml       线上后台部署配置（admin.yinto.top）
+│  └─ README.md           后台功能、接口、部署与访问控制说明
 ├─ shared/                 Node 与 Worker 共用的纯逻辑（第 8 项：消除双端重复）
 │  ├─ search.js            归一化 + 字段加权打分（含拼音）
 │  ├─ pinyin.js            汉字 → 全拼/首字母、拼音匹配打分
@@ -238,8 +241,6 @@ movie/
 │  ├─ app.js              路由编排、页面外壳、静态托管、错误处理
 │  ├─ pages.js            读取 index.html 并注入 shared/meta.js 的元信息
 │  ├─ api.js              /api/* 公开接口
-│  ├─ admin.js            /api/admin/* 登录、CRUD、看板、反馈
-│  ├─ adminAuth.js        密码哈希、内存会话、Cookie
 │  ├─ analytics.js        匿名事件存储与看板聚合
 │  ├─ go.js               /go 跳转、点击归属与限流
 │  ├─ repository.js       片库读写、原子落盘、回滚
@@ -253,10 +254,10 @@ movie/
 ├─ config/
 │  └─ brand.json          品牌唯一来源：名称、标语、Cookie 名、默认密码、免责声明
 ├─ test/
-│  ├─ api.test.js         12 个公开 API / 安全 / 持久化测试
-│  ├─ admin.test.js       9 个后台鉴权 / CRUD / 看板 / 反馈 / 跳转测试
+│  ├─ api.test.js         公开 API / 安全 / 持久化测试
 │  ├─ seo.test.js         页面 meta / canonical / noindex / sitemap / TMDB 映射
 │  ├─ pinyin.test.js      拼音转换与拼音搜索命中
+│  ├─ pansou.test.js      PanSou 客户端、限流与 Worker bundle
 │  └─ brand.test.js       品牌一致性守卫（字段齐全、无旧品牌残留、双后端同源）
 ├─ worker/                Cloudflare Workers 版后端（对齐 server/ 契约）
 │  ├─ index.js            fetch 入口：路由、安全头、静态资源、/go 跳转
@@ -265,11 +266,11 @@ movie/
 │  ├─ feedback.js         反馈存储与限流
 │  ├─ adminAuth.js        HMAC 无状态会话 Cookie
 │  ├─ config.js           平台表、类型、画质顺序
-│  ├─ migrations/         D1 建表 SQL（0001 建表 / 0002 海报地址列）
-│  └─ seed.sql            本地生成的演示数据（.gitignore）
+│  └─ migrations/         D1 迁移（0001 建表 / 0002 海报地址 / 0003 移除片库 / 0004 事件类型）
 ├─ scripts/
-│  ├─ seed-d1.mjs         从 server/data/seed.js 生成 worker/seed.sql
-│  └─ build-pinyin.mjs    生成 shared/pinyin-data.js（离线，一次即可）
+│  ├─ build-pinyin.mjs    生成 shared/pinyin-data.js（离线，一次即可）
+│  ├─ sync-catalog.mjs    把 titles.json 同步到打包目录并重新部署
+│  └─ worker-smoke.mjs    Worker 冒烟测试（冷启动、路由、后台等）
 ├─ data/                  运行时生成，已加入 .gitignore
 │  ├─ titles.json         可变片库（首次启动从 seed 生成）
 │  ├─ analytics.ndjson    匿名搜索、浏览、跳转事件

@@ -1,20 +1,20 @@
-# 映途 管理后台（独立项目）
+# 映途 管理后台（`admin/`）
 
-映途片库的后台，从原前台项目里拆出来单独运行：**不再挂在 `/admin/` 下面**，而是自己一个进程、自己一个端口。
+映途片库的后台，代码在 `movie/admin/`，但仍是一个**独立进程、独立端口**：不再挂在 `/admin/` 下面，也不参与前台进程。
 
 - 后台界面：http://127.0.0.1:4174
-- 前台站点：[../movie](../movie)（默认 http://127.0.0.1:4173）
+- 前台站点：[..](..)（默认 http://127.0.0.1:4173）
 
 支持两种数据源模式，切法只差一个环境变量：
 
 | 模式 | 触发条件 | 数据来自 | 适用场景 |
 | --- | --- | --- | --- |
-| **本地文件**（默认） | 不设 `REMOTE_API_BASE` | `../movie/data/` 下的 JSON | 本地开发、改完立刻看前台效果 |
+| **本地文件**（默认） | 不设 `REMOTE_API_BASE` | `../data/` 下的 JSON | 本地开发、改完立刻看前台效果 |
 | **远程** | 设 `REMOTE_API_BASE=https://你的域名` | 线上 Cloudflare Worker 的 D1 | 管理已经上线的站点 |
 
 ## 本地文件模式（默认）
 
-两个进程通过 `../movie/data/` 里的文件通信，没有 RPC、没有数据库：
+两个进程通过 `../data/` 里的文件通信，没有 RPC、没有数据库：
 
 | 文件 | 谁写 | 谁读 |
 | --- | --- | --- |
@@ -55,11 +55,11 @@ https://admin.yinto.top 是本项目的前端界面单独部署到 Cloudflare Wo
 - 线上目录是部署时打包的只读快照，因此远程模式下侧边栏不显示「片库管理」，`#/titles*` 会回到数据看板；片库仍在本地后台编辑后重新部署。
 - 响应带 CSP、`X-Frame-Options: DENY`、`X-Robots-Tag: noindex`，`/robots.txt` 全部 Disallow。
 
-部署（在 movie 仓库里执行，那里装了 wrangler）：
+部署（在仓库根目录执行，wrangler 装在那里）：
 
 ```bash
 cd D:/workspace/movie
-npx wrangler deploy --config ../movie-admin/wrangler.toml
+npx wrangler deploy --config admin/wrangler.toml
 ```
 
 `wrangler.toml` 用 `custom_domain = true` 绑定 `admin.yinto.top`，首次部署会自动创建 DNS 记录和证书，无需手动加 CNAME。后台 Worker 不需要任何 secret：它不校验密码，只做代理。启用前把 `routes` 的注释取消，并把 `ADMIN_ENABLED` 改成 `"true"`。
@@ -82,7 +82,7 @@ Access 是独立于 `ADMIN_PASSWORD` 的第二道门：即使有人拿到了后�
 环境要求：Node.js >= 18.16。零第三方依赖，不用 `npm install`。
 
 ```bash
-cd D:/workspace/movie-admin
+cd D:/workspace/movie/admin
 npm start
 ```
 
@@ -99,7 +99,7 @@ ADMIN_PASSWORD="换成你自己的强密码" npm start
 | `PORT` | `4174` | 后台端口，不能和前台 `4173` 撞车 |
 | `HOST` | `127.0.0.1` | 监听地址；`0.0.0.0` 才允许局域网访问 |
 | `ADMIN_PASSWORD` | `yingtu-admin` | 管理密码，正式环境必须改 |
-| `ADMIN_DATA_DIR` | `../movie/data` | 数据目录，前后台必须指向同一份 |
+| `ADMIN_DATA_DIR` | `../data` | 数据目录，前后台必须指向同一份 |
 | `DATA_FILE` | `$ADMIN_DATA_DIR/titles.json` | 单独指定片库文件 |
 | `ANALYTICS_FILE` | `$ADMIN_DATA_DIR/analytics.ndjson` | 行为日志 |
 | `FEEDBACK_FILE` | `$ADMIN_DATA_DIR/feedback.ndjson` | 反馈日志 |
