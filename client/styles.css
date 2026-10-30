@@ -1642,3 +1642,7 @@ body.is-routing .view { opacity: .55; transition: opacity .12s ease; }
 .share-card-code { margin: 0; font-size: 13px; }
 .share-card-code code { font-family: var(--font-mono); background: var(--surface-soft); padding: 2px 6px; border-radius: 6px; }
 .share-card-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* 页脚 TMDB 署名 */
+.foot-tmdb { flex-basis: 100%; color: var(--muted); font-size: 10.5px; line-height: 1.6; }
+.foot-tmdb a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
