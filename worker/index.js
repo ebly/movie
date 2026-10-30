@@ -384,20 +384,28 @@ async function handleImageProxy(ctx) {
   if (!/^https?:$/.test(target.protocol) || !IMG_HOST.test(target.hostname)) {
     return sendText(ctx, 403, "403 · 仅允许豆瓣图片");
   }
+  const referers = ["https://movie.douban.com/", "https://www.douban.com/", "https://yinto.top/"];
+  // 豆瓣的 img1/2/3/9 互为镜像；某些域名会被 Cloudflare 出口挡住，失败就换域名重试。
+  const hosts = [...new Set([target.hostname, "img9.doubanio.com", "img3.doubanio.com", "img1.doubanio.com"])];
   let upstream = null;
-  for (const referer of ["https://movie.douban.com/", "https://www.douban.com/", "https://yinto.top/"]) {
-    try {
-      const response = await fetch(target.href, {
-        headers: { Referer: referer, Accept: "image/*,*/*" }
-      });
-      if (response.ok && /^image\//i.test(response.headers.get("content-type") || "")) {
-        upstream = response;
-        break;
+  for (const host of hosts) {
+    const candidate = new URL(target.href);
+    candidate.hostname = host;
+    for (const referer of referers) {
+      try {
+        const response = await fetch(candidate.href, {
+          headers: { Referer: referer, Accept: "image/*,*/*" }
+        });
+        if (response.ok && /^image\//i.test(response.headers.get("content-type") || "")) {
+          upstream = response;
+          break;
+        }
+        if (response.status === 404) return sendText(ctx, 404, "图片不存在");
+      } catch (err) {
+        // 换下一个 Referer / 域名
       }
-      if (response.status === 404) return sendText(ctx, 404, "图片不存在");
-    } catch (err) {
-      // 换下一个 Referer 再试
     }
+    if (upstream) break;
   }
   if (!upstream) return sendText(ctx, 502, "502 · 图片获取失败");
   const contentType = upstream.headers.get("content-type") || "image/jpeg";
