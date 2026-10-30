@@ -722,22 +722,27 @@ function sendHTML(ctx, status, html, extraHeaders = {}) {
 
 async function handlePage(ctx, kind, id) {
   let result;
+  let body = "";
   if (kind === "detail") {
     const catalog = await getCatalog(ctx.env, ctx.url);
-    result = meta.detailMeta(catalog.byId.get(id) || null, id, BRAND, ctx.url.origin);
+    const item = catalog.byId.get(id) || null;
+    result = meta.detailMeta(item, id, BRAND, ctx.url.origin, PROVIDERS);
+    if (item) body = meta.detailBody(item, BRAND, PROVIDERS);
   } else if (kind === "search") {
     result = meta.searchMeta(ctx.url, BRAND, ctx.url.origin);
   } else if (kind === "list") {
     result = meta.listMeta(BRAND, ctx.url.origin);
   } else {
+    const catalog = await getCatalog(ctx.env, ctx.url);
     result = meta.homeMeta(BRAND, ctx.url.origin);
+    body = meta.homeBody(catalog.items, BRAND, ctx.url.origin);
   }
 
   const template = await assetText(ctx, "/index.html");
   const headers = result.status === 404
     ? { "X-Robots-Tag": "noindex, nofollow", "Cache-Control": "no-store" }
     : {};
-  return sendHTML(ctx, result.status, meta.inject(template, result.meta), headers);
+  return sendHTML(ctx, result.status, meta.inject(template, result.meta, body), headers);
 }
 
 async function handleSitemap(ctx) {

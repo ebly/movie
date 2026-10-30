@@ -44,7 +44,7 @@ function createApp(options = {}) {
   const api = createApi({ store, feedback, analytics, pansou });
   const go = createGoHandler({ store, analytics });
   const clientRoot = path.resolve(options.clientRoot || path.join(__dirname, "..", "client"));
-  const pages = new PageRenderer({ clientRoot, brand: BRAND, repository });
+  const pages = new PageRenderer({ clientRoot, brand: BRAND, repository, providers: seed.PROVIDERS });
 
   return async function handler(req, res) {
     const started = process.hrtime.bigint();

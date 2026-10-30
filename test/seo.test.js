@@ -87,6 +87,39 @@ describe("页面外壳与 SEO", () => {
     assert.doesNotMatch(body, /\/admin/);
     assert.match(body, /Sitemap: http:\/\/127\.0\.0\.1:\d+\/sitemap\.xml/);
   });
+
+  test("首页注入可索引正文，含站内搜索结构化数据", async () => {
+    const home = await html("/");
+    // 不执行 JS 的爬虫也能看到作品标题与站内链接
+    assert.match(home.body, /class="seo-static"/);
+    assert.match(home.body, /<a href="\/title\/hotd">/);
+    assert.doesNotMatch(home.body, /<!--SEO-BODY-->/);
+    assert.match(home.body, /"@type":"WebSite"/);
+    assert.match(home.body, /"@type":"SearchAction"/);
+    assert.match(home.body, /"@type":"Organization"/);
+    assert.match(home.body, /property="og:site_name" content="映途"/);
+    assert.match(home.body, /property="og:locale" content="zh_CN"/);
+    assert.match(home.body, /property="og:image" content="http:\/\/127\.0\.0\.1:\d+\/icon-512\.png"/);
+  });
+
+  test("详情页正文、面包屑、评分与观看渠道结构化数据齐全", async () => {
+    const page = await html("/title/hotd");
+    assert.match(page.body, /class="seo-static"/);
+    assert.match(page.body, /<h1>龙之家族/);
+    assert.match(page.body, /class="seo-crumb"/);
+    assert.match(page.body, /<span>龙之家族<\/span>/); // 面包屑当前项
+    assert.match(page.body, /"@type":"BreadcrumbList"/);
+    assert.match(page.body, /"@type":"AggregateRating"/);
+    assert.match(page.body, /"@type":"Offer"/);
+    // 无海报时 og:image 需回落到绝对地址
+    assert.match(page.body, /property="og:image" content="http:\/\/127\.0\.0\.1:\d+\/icon-512\.png"/);
+  });
+
+  test("sitemap 声明图片命名空间", async () => {
+    const response = await fetch(`${base}/sitemap.xml`);
+    const xml = await response.text();
+    assert.match(xml, /xmlns:image="http:\/\/www\.google\.com\/schemas\/sitemap-image\/1\.1"/);
+  });
 });
 
 describe("TMDB 映射", () => {

@@ -315,10 +315,12 @@ movie/
 
 ## SEO 与分享
 
-- 每部作品都有独立真实路径 `/title/:id`，服务端把本页的 `<title>`、`description`、`canonical`、Open Graph 与 JSON-LD（`Movie` / `TVSeries`）注入 `client/index.html` 的 `<!--SEO-->` 占位；Node 与 Worker 共用 `shared/meta.js`，输出完全一致。
+- 每部作品都有独立真实路径 `/title/:id`，服务端把本页的 `<title>`、`description`、`canonical`、Open Graph 与 JSON-LD 注入 `client/index.html` 的 `<!--SEO-->` 占位；Node 与 Worker 共用 `shared/meta.js`，输出完全一致。
+- 首页注入 `WebSite` + `SearchAction`（站内搜索框）与 `Organization`；详情页注入 `Movie`/`TVSeries`（含类型、年份、评分 `AggregateRating` 与观看渠道 `Offer`）和 `BreadcrumbList` 面包屑。
+- 可索引正文：首页与详情页在 `<!--SEO-BODY-->` 占位处注入真实内容（标题、简介、评分、平台、作品内链），让百度、Bing、社交预览这类不执行 JS 的爬虫也能读到内容；应用启动后由 `app.js` 接管并替换。搜索页、片单页不注入正文。
 - 可索引范围：首页与详情页可收录；`/search`、`/list`、404 页返回 `noindex,follow`，把抓取预算留给详情页。未知作品同时返回 HTTP 404，不是“200 的空页面”。
-- `/sitemap.xml` 由片库实时生成（首页 + 全部作品，带 `lastmod`）；`/robots.txt` 动态返回并指向 sitemap，同时屏蔽 `/admin/` 与 `/list`。
-- 有海报时把 `poster` 用作 `og:image`，没有海报时退回 `summary` 卡片，不会引用不存在的图片。
+- `/sitemap.xml` 由片库实时生成（首页 + 全部作品，带 `lastmod`，声明 `image:image` 命名空间，有海报时附带图片）；`/robots.txt` 动态返回并指向 sitemap，同时屏蔽 `/admin/` 与 `/list`。
+- `og:image` 有海报时用 `poster`，没有时回落到 `${origin}/icon-512.png`（绝对地址）；`og:site_name`、`og:locale`、`twitter:*` 一并输出。
 - `client/index.html` 里的 CSS/JS 必须用绝对路径（`/styles.css`、`/app.js`）：子路径页面用相对路径会被解析成 `/title/styles.css`。
 
 ## API

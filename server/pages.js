@@ -9,9 +9,10 @@ const meta = require("../shared/meta.js");
  * 元信息本身来自 shared/meta.js，与 Worker 完全同源。
  */
 class PageRenderer {
-  constructor({ clientRoot, brand, repository }) {
+  constructor({ clientRoot, brand, repository, providers }) {
     this.brand = brand;
     this.repository = repository;
+    this.providers = providers || {};
     this.file = path.join(clientRoot, "index.html");
     this.template = null;
     this.mtime = 0;
@@ -26,13 +27,15 @@ class PageRenderer {
     return this.template;
   }
 
-  render(result) {
+  render(result, body) {
     const { meta: block } = result;
-    return { status: result.status, html: meta.inject(this.load(), block) };
+    return { status: result.status, html: meta.inject(this.load(), block, body) };
   }
 
   detail(id, origin) {
-    return this.render(meta.detailMeta(this.repository.get(id), id, this.brand, origin));
+    const item = this.repository.get(id);
+    const body = item ? meta.detailBody(item, this.brand, this.providers) : "";
+    return this.render(meta.detailMeta(item, id, this.brand, origin, this.providers), body);
   }
 
   search(url, origin) {
@@ -44,7 +47,10 @@ class PageRenderer {
   }
 
   home(origin) {
-    return this.render(meta.homeMeta(this.brand, origin));
+    return this.render(
+      meta.homeMeta(this.brand, origin),
+      meta.homeBody(this.repository.all(), this.brand, origin)
+    );
   }
 
   sitemap(origin) {

@@ -1611,3 +1611,16 @@ body.is-routing .view { opacity: .55; transition: opacity .12s ease; }
   .pan-tab { flex: 1; justify-content: center; }
 }
 
+/* 服务端注入的可索引正文：给不执行 JS 的爬虫与首屏兜底，应用挂载后会被替换。 */
+ .seo-static { display: block; max-width: 1080px; margin: 0 auto; padding: 44px 22px 72px; color: var(--text); font-family: var(--font-ui); line-height: 1.7; }
+.seo-static ~ .boot { display: none; }
+.seo-static h1 { font-family: var(--font-display); font-size: clamp(28px, 4vw, 44px); line-height: 1.15; margin: 0 0 14px; }
+.seo-static h2 { font-size: 18px; margin: 28px 0 12px; }
+.seo-static p { margin: 0 0 12px; color: var(--text-soft); }
+.seo-static a { color: var(--accent); text-decoration: none; }
+.seo-static a:hover { text-decoration: underline; }
+.seo-crumb { font-size: 13px; color: var(--muted); margin-bottom: 18px; }
+.seo-meta { font-size: 13px; letter-spacing: .02em; color: var(--muted); }
+.seo-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.seo-list li { padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); font-size: 14px; }
+.seo-links { margin-top: 22px; font-size: 14px; }
