@@ -1167,8 +1167,11 @@ function renderCatalogList() {
   const rows = items.length ? items.map((entry) => `
     <div class="catalog-row">
       <div class="catalog-main-cell">
-        <strong>${esc(entry.title)}</strong>
-        <small>${[entry.year, entry.kind, entry.rating ? `★ ${entry.rating}` : ""].filter(Boolean).map(esc).join(" · ")}${entry.note ? ` · ${esc(entry.note)}` : ""}</small>
+        ${entry.poster ? `<img class="catalog-thumb" src="${esc(entry.poster)}" alt="" loading="lazy">` : ""}
+        <div class="catalog-cell-text">
+          <strong>${esc(entry.title)}</strong>
+          <small>${[entry.year, entry.kind, entry.rating ? `★ ${entry.rating}` : ""].filter(Boolean).map(esc).join(" · ")}${entry.note ? ` · ${esc(entry.note)}` : ""}</small>
+        </div>
       </div>
       <div class="catalog-meta">
         <span class="tag">${esc(catalogPanLabel(entry.pan))}</span>
