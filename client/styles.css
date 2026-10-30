@@ -1648,8 +1648,9 @@ body.is-routing .view { opacity: .55; transition: opacity .12s ease; }
 .foot-tmdb a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 
 /* 搜索空状态：横向「最热」海报 */
-.poster-row { display: flex; gap: 12px; overflow-x: auto; padding: 4px 2px 10px; max-width: 100%; scrollbar-width: thin; }
-.poster-tile { flex: 0 0 132px; display: grid; gap: 8px; text-decoration: none; }
-.poster-tile-img { position: relative; width: 132px; aspect-ratio: 2 / 3; border-radius: var(--radius-card); overflow: hidden; border: 1px solid var(--line); background: linear-gradient(160deg, var(--p1, #d9d0c6) 8%, var(--p2, #77776d) 92%); }
+.poster-row { display: flex; gap: 10px; justify-content: center; align-items: flex-start; width: 100%; max-width: 620px; margin: 0 auto; padding: 2px 0 4px; overflow: hidden; }
+.poster-tile { flex: 1 1 0; min-width: 0; max-width: 108px; display: grid; gap: 6px; text-decoration: none; }
+.poster-tile-img { position: relative; width: 100%; aspect-ratio: 2 / 3; border-radius: var(--radius-card); overflow: hidden; border: 1px solid var(--line); background: linear-gradient(160deg, var(--p1, #d9d0c6) 8%, var(--p2, #77776d) 92%); }
 .poster-tile-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .poster-tile-title { font-size: 12.5px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 520px) { .poster-row { gap: 7px; } .poster-tile { max-width: 82px; } }

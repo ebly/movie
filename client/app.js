@@ -1267,7 +1267,7 @@ async function loadFeaturedPool() {
   } catch (err) {
     douban = [];
   }
-  featuredPoolCache = mergeHomeFeeds(mine, douban, 11).filter((item) => item && item.poster);
+  featuredPoolCache = mergeHomeFeeds(mine, douban, 11).filter((item) => item && item.poster).slice(0, 5);
   return featuredPoolCache;
 }
 
