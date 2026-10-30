@@ -658,7 +658,7 @@ function leadCardHTML(item) {
   const art = item.art || {};
   const p4 = art.p4 || art.p3 || "#a4684f";
   const genres = (item.genres || []).slice(0, 3).join(" · ");
-  const rating = Number(item.rating) > 0 ? `★ ${Number(item.rating).toFixed(1)} · ` : "";
+  const rating = Number(item.rating) > 0 ? `★ ${Number(item.rating).toFixed(1)}` : "";
   const year = item.year ? `${item.year} · ` : "";
   const href = item.href || `/title/${encodeURIComponent(item.id)}`;
   return `<a class="feature-lead" href="${esc(href)}">
@@ -668,7 +668,7 @@ function leadCardHTML(item) {
       <div class="poster-copy">
         <span class="poster-kicker">${BRAND.name}</span>
         <h3 class="poster-title">${esc(item.title)}</h3>
-        <p class="poster-meta">${rating}${year}${esc(enumText(item.type))}${genres ? ` <span class="poster-genres">· ${esc(genres)}</span>` : ""}</p>
+        <p class="poster-meta">${year}${esc(enumText(item.type))}${genres ? ` <span class="poster-genres">· ${esc(genres)}</span>` : ""}${rating ? ` · ${rating}` : ""}</p>
         <span class="poster-line"></span>
       </div>
     </div>
