@@ -523,13 +523,14 @@ function motifSVG(art) {
 }
 
 /** 外部海报直链（后台可填）。图片盖在程序化海报之上，加载失败由全局 error 监听回退到生成的封面。 */
-function imageSrc(url) {
+function imageSrc(url, small) {
   if (typeof url !== "string" || !url) return "";
   try {
     const parsed = new URL(url, location.origin);
     // 豆瓣图片有防盗链，统一走 Worker 代理（带豆瓣 Referer）。
     if (/(^|\.)doubanio\.com$/i.test(parsed.hostname)) {
-      return `/api/img?src=${encodeURIComponent(parsed.href)}`;
+      const href = small ? parsed.href.replace("/l_ratio_poster/", "/m_ratio_poster/") : parsed.href;
+      return `/api/img?src=${encodeURIComponent(href)}`;
     }
     return url;
   } catch (err) {
@@ -537,9 +538,9 @@ function imageSrc(url) {
   }
 }
 
-function posterImgHTML(item) {
+function posterImgHTML(item, small = false) {
   if (!item.poster) return "";
-  return `<img class="poster-img" src="${esc(imageSrc(item.poster))}" alt="${esc(t("poster.alt", { title: item.title }))}" loading="lazy" decoding="async">`;
+  return `<img class="poster-img" src="${esc(imageSrc(item.poster, small))}" alt="${esc(t("poster.alt", { title: item.title }))}" loading="lazy" decoding="async">`;
 }
 
 function posterHTML(item) {
@@ -657,7 +658,7 @@ function leadCardHTML(item) {
   return `<a class="feature-lead" href="${esc(href)}">
     <div class="poster poster-wide${item.poster ? " has-img" : ""}" style="--p1:${art.p1 || "#d9d0c6"};--p2:${art.p2 || "#77776d"};--p3:${art.p3 || "#a4684f"};--p4:${p4};--p-ink:${art.ink || "#2f3230"}">
       <svg class="poster-art" viewBox="0 0 400 600" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><g class="motif">${motifSVG(art)}</g></svg>
-      ${posterImgHTML(item)}
+      ${posterImgHTML(item, true)}
       <div class="poster-copy">
         <span class="poster-kicker">${BRAND.name}</span>
         <h3 class="poster-title">${esc(item.title)}</h3>
@@ -675,7 +676,7 @@ function miniCardHTML(item) {
   return `<a class="mini-card" href="${esc(href)}">
     <div class="mini-poster${item.poster ? " has-img" : ""}" style="--p1:${art.p1 || "#d9d0c6"};--p2:${art.p2 || "#77776d"};--p3:${art.p3 || "#a4684f"};--p-ink:${art.ink || "#2f3230"}">
       <svg class="poster-art" viewBox="0 0 400 600" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><g class="motif">${motifSVG(art)}</g></svg>
-      ${posterImgHTML(item)}
+      ${posterImgHTML(item, true)}
     </div>
     <div class="mini-body">
       <h4 class="mini-title">${esc(item.title)}</h4>

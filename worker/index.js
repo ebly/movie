@@ -384,6 +384,13 @@ async function handleImageProxy(ctx) {
   if (!/^https?:$/.test(target.protocol) || !IMG_HOST.test(target.hostname)) {
     return sendText(ctx, 403, "403 · 仅允许豆瓣图片");
   }
+  // 只缓存成功取回的图片；命中边缘缓存直接返回，避免每个访客都回源豆瓣。
+  const cacheable = request.method === "GET";
+  const cacheKey = new Request(url.toString(), { method: "GET" });
+  if (cacheable) {
+    const cached = await caches.default.match(cacheKey);
+    if (cached) return cached;
+  }
   const referers = ["https://movie.douban.com/", "https://www.douban.com/", "https://yinto.top/"];
   // 豆瓣的 img1/2/3/9 互为镜像；某些域名会被 Cloudflare 出口挡住，失败就换域名重试。
   const hosts = [...new Set([target.hostname, "img9.doubanio.com", "img3.doubanio.com", "img1.doubanio.com"])];
@@ -410,14 +417,16 @@ async function handleImageProxy(ctx) {
   if (!upstream) return sendText(ctx, 502, "502 · 图片获取失败");
   const contentType = upstream.headers.get("content-type") || "image/jpeg";
   if (!/^image\//i.test(contentType)) return sendText(ctx, 502, "非图片响应");
-  return new Response(request.method === "HEAD" ? null : upstream.body, {
+  const response = new Response(request.method === "HEAD" ? null : upstream.body, {
     status: 200,
     headers: {
       "content-type": contentType,
-      "cache-control": "public, max-age=86400",
+      "cache-control": "public, max-age=86400, s-maxage=86400",
       "x-content-type-options": "nosniff"
     }
   });
+  if (cacheable) ctx.execution.waitUntil(caches.default.put(cacheKey, response.clone()));
+  return response;
 }
 
 async function handleApi(ctx) {
