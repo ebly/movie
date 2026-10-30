@@ -1,0 +1,95 @@
+<view wx:if="{{loading}}" class="loader">
+  <view class="loader-dot"></view>
+  <view class="loader-dot"></view>
+  <view class="loader-dot"></view>
+</view>
+
+<view wx:elif="{{error}}" class="page">
+  <view class="state">
+    <text>{{error}}</text>
+    <view class="state-action">
+      <view class="btn" bindtap="retry">重试</view>
+    </view>
+  </view>
+</view>
+
+<block wx:else>
+  <view class="detail-hero" style="{{heroStyle}}">
+    <view class="hero-veil"></view>
+    <view class="detail-hero-body">
+      <text class="detail-type">{{item.type}}</text>
+      <text class="detail-name serif">{{item.title}}</text>
+      <text wx:if="{{item.original}}" class="detail-original">{{item.original}}</text>
+      <view class="detail-badges">
+        <text class="hero-badge">评分 {{ratingText}}</text>
+        <text wx:if="{{item.year}}" class="hero-badge">{{item.year}}</text>
+        <text wx:if="{{item.runtime}}" class="hero-badge">{{item.runtime}}</text>
+        <text wx:if="{{item.seasons}}" class="hero-badge">{{item.seasons}} 季</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="detail-body">
+    <text wx:if="{{item.genreText}}" class="genre">{{item.genreText}}</text>
+    <text wx:if="{{item.synopsis}}" class="synopsis">{{item.synopsis}}</text>
+
+    <view wx:if="{{item.tags.length}}" class="tag-row">
+      <text class="tag" wx:for="{{item.tags}}" wx:key="*this">#{{item}}</text>
+    </view>
+
+    <view class="section-head">
+      <text class="section-title serif">观看渠道</text>
+      <text class="section-note">{{offers.length}} 个平台</text>
+    </view>
+
+    <view wx:if="{{offers.length === 0}}" class="state">暂无收录的观看渠道</view>
+
+    <view
+      class="offer"
+      wx:for="{{offers}}"
+      wx:key="key"
+      data-index="{{index}}"
+      bindtap="copyOffer"
+      hover-class="offer-hover"
+    >
+      <view class="offer-logo" style="background: {{item.providerColor}}">{{item.providerShort}}</view>
+      <view class="offer-main">
+        <view class="offer-line">
+          <text class="offer-name">{{item.providerName}}</text>
+          <text wx:if="{{item.verified}}" class="offer-verified">已验证</text>
+        </view>
+        <text class="offer-meta">{{item.tier}}<text wx:if="{{item.seasonText}}"> · {{item.seasonText}}</text><text wx:if="{{item.qualityText}}"> · {{item.qualityText}}</text></text>
+        <text wx:if="{{item.price}}" class="offer-price">{{item.price}}</text>
+      </view>
+      <text class="offer-copy">复制链接</text>
+    </view>
+
+    <view class="pan-cta is-primary" bindtap="panFor">
+      <text>搜索「{{item.title}}」的网盘公开分享</text>
+      <text class="pan-cta-go">›</text>
+    </view>
+
+    <block wx:if="{{related.length}}">
+      <view class="section-head">
+        <text class="section-title serif">相似作品</text>
+      </view>
+      <view class="related">
+        <view class="related-item" wx:for="{{related}}" wx:key="id" data-id="{{item.id}}" bindtap="openRelated">
+          <view class="related-poster" style="{{item.posterStyle}}">
+            <image
+              wx:if="{{item.poster}}"
+              class="poster-img"
+              src="{{item.poster}}"
+              mode="aspectFill"
+              lazy-load
+            />
+            <text wx:else class="related-initial serif">{{item.initial}}</text>
+          </view>
+          <text class="related-title clip-2">{{item.title}}</text>
+        </view>
+      </view>
+    </block>
+
+    <view wx:if="{{disclaimer}}" class="footer-note">{{disclaimer}}</view>
+  </view>
+</block>

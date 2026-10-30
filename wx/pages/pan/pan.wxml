@@ -1,0 +1,101 @@
+<view class="page">
+  <view class="hero">
+    <text class="hero-kicker">PUBLIC SHARES</text>
+    <text class="hero-title serif">网盘公开分享</text>
+    <text class="hero-sub">在已接入的公开来源里找分享链接，提取码一起复制。</text>
+  </view>
+
+  <view class="search-bar">
+    <input
+      class="search-input"
+      value="{{q}}"
+      placeholder="片名、剧名或关键词"
+      placeholder-class="search-placeholder"
+      confirm-type="search"
+      bindinput="onInput"
+      bindconfirm="onConfirm"
+    />
+    <view wx:if="{{q}}" class="search-clear" bindtap="clearInput">×</view>
+    <view class="search-submit" bindtap="onConfirm">搜索</view>
+  </view>
+
+  <view class="chips types">
+    <view
+      wx:for="{{types}}"
+      wx:key="id"
+      class="chip {{type === item.id ? 'is-on' : ''}}"
+      data-type="{{item.id}}"
+      bindtap="onType"
+    >{{item.label}}</view>
+  </view>
+
+  <!-- 没搜过：热门片名做快捷入口 -->
+  <block wx:if="{{!searched && !loading}}">
+    <view wx:if="{{hot.length}}">
+      <view class="section-head">
+        <text class="section-title serif">试试这些</text>
+        <text class="section-note">点一下直接搜</text>
+      </view>
+      <view class="chips">
+        <view class="chip" wx:for="{{hot}}" wx:key="id" data-title="{{item.title}}" bindtap="useHot">{{item.title}}</view>
+      </view>
+    </view>
+    <view class="footer-note">
+      搜索范围是 PanSou 已接入的公开分享来源，不代表网盘全量数据；链接不保证有效或已获授权。
+      点击结果卡片会复制链接与提取码，请在浏览器里打开。
+    </view>
+  </block>
+
+  <view wx:if="{{loading}}" class="loader">
+    <view class="loader-dot"></view>
+    <view class="loader-dot"></view>
+    <view class="loader-dot"></view>
+  </view>
+
+  <view wx:elif="{{error}}" class="state">
+    <text>{{error}}</text>
+    <view class="state-action">
+      <view class="btn" bindtap="retry">重试</view>
+    </view>
+  </view>
+
+  <block wx:elif="{{searched && items.length}}">
+    <view class="result-head">
+      <text class="muted">共 {{total}} 条</text>
+      <text class="reload" bindtap="reload">重新获取</text>
+    </view>
+
+    <view
+      class="pan-card"
+      wx:for="{{items}}"
+      wx:key="id"
+      data-index="{{index}}"
+      bindtap="copyItem"
+      hover-class="pan-card-hover"
+    >
+      <view class="pan-card-top">
+        <text class="pan-type">{{item.typeLabel}}</text>
+        <text class="pan-time">{{item.timeText}}</text>
+      </view>
+      <text class="pan-title clip-2">{{item.title}}</text>
+      <view class="pan-bottom">
+        <text wx:if="{{item.password}}" class="pan-code">提取码 {{item.password}}</text>
+        <text wx:else class="pan-nocode">无需提取码</text>
+        <text class="pan-copy">复制链接</text>
+      </view>
+      <text wx:if="{{item.sourceText}}" class="pan-source">来源 {{item.sourceText}}</text>
+    </view>
+
+    <view wx:if="{{loadingMore}}" class="loader">
+      <view class="loader-dot"></view>
+      <view class="loader-dot"></view>
+      <view class="loader-dot"></view>
+    </view>
+    <view wx:elif="{{hasMore}}" class="load-hint" bindtap="onMoreTap">加载更多</view>
+    <view wx:else class="load-hint">已经到底了</view>
+  </block>
+
+  <view wx:elif="{{searched}}" class="state">
+    这个关键词在已接入来源里没有结果，换个片名或换网盘类型试试
+  </view>
+</view>

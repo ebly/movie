@@ -22,3 +22,6 @@ deploy/.env
 deploy/pansou-linux
 
 pansou-main/*.exe
+
+# 小程序本机调试配置（AppID 与域名校验开关按机器而变）
+wx/project.private.config.json

@@ -1,0 +1,74 @@
+<view class="page">
+  <view class="hero">
+    <text class="hero-kicker">YINGTU</text>
+    <text class="hero-title serif">新片与公开分享</text>
+    <text class="hero-sub">豆瓣新片速览 · 观看渠道 · 网盘公开分享搜索</text>
+  </view>
+
+  <view class="search-entry" bindtap="onSearchTap" hover-class="search-entry-hover">
+    <text class="search-entry-text">搜索作品、片名或别名</text>
+    <text class="search-entry-go">站内搜索 ›</text>
+  </view>
+
+  <view class="chips kinds">
+    <view
+      wx:for="{{kinds}}"
+      wx:key="id"
+      class="chip {{kind === item.id ? 'is-on' : ''}}"
+      data-id="{{item.id}}"
+      bindtap="onKind"
+    >{{item.label}}</view>
+  </view>
+
+  <view wx:if="{{loading}}" class="loader">
+    <view class="loader-dot"></view>
+    <view class="loader-dot"></view>
+    <view class="loader-dot"></view>
+  </view>
+
+  <view wx:elif="{{error}}" class="state">
+    <text>{{error}}</text>
+    <view class="state-action">
+      <view class="btn" bindtap="retry">重新加载</view>
+    </view>
+  </view>
+
+  <view wx:elif="{{items.length === 0}}" class="state">榜单暂时是空的，下拉刷新试试</view>
+
+  <view wx:else class="grid">
+    <view
+      class="grid-item"
+      wx:for="{{items}}"
+      wx:key="id"
+      data-index="{{index}}"
+      bindtap="onCard"
+      hover-class="grid-item-hover"
+    >
+      <view class="poster grid-poster" style="{{item.posterStyle}}">
+        <image
+          wx:if="{{item.poster}}"
+          class="poster-img"
+          src="{{item.poster}}"
+          mode="aspectFill"
+          lazy-load
+          data-index="{{index}}"
+          binderror="onPosterError"
+        />
+        <view wx:else class="poster-fallback">
+          <text class="poster-fallback-text serif">{{item.initial}}</text>
+          <text class="poster-fallback-year">{{item.yearText}}</text>
+        </view>
+        <view class="rating">{{item.ratingText}}</view>
+      </view>
+      <text class="grid-title clip-2">{{item.title}}</text>
+      <text class="grid-meta">{{item.meta}}</text>
+    </view>
+  </view>
+
+  <view class="hint">点海报可站内查找或直接搜网盘</view>
+
+  <view wx:if="{{disclaimer}}" class="footer-note">
+    {{disclaimer}}
+    <text class="footer-source">榜单数据来自豆瓣公开榜单，仅展示元数据。</text>
+  </view>
+</view>

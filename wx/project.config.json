@@ -1,0 +1,24 @@
+{
+  "description": "映途小程序：豆瓣新片 + 站内作品索引 + 公开网盘分享搜索",
+  "packOptions": {
+    "ignore": [
+      { "type": "file", "value": "README.md" },
+      { "type": "folder", "value": "tools" }
+    ]
+  },
+  "setting": {
+    "urlCheck": false,
+    "es6": true,
+    "enhance": true,
+    "postcss": true,
+    "minified": true,
+    "coverView": true,
+    "compileHotReLoad": true,
+    "ignoreUploadUnusedFiles": true
+  },
+  "compileType": "miniprogram",
+  "libVersion": "3.5.7",
+  "appid": "touristappid",
+  "projectname": "yingtu-wx",
+  "condition": {}
+}

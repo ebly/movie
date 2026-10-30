@@ -1,0 +1,31 @@
+{
+  "pages": [
+    "pages/index/index",
+    "pages/search/search",
+    "pages/pan/pan",
+    "pages/detail/detail"
+  ],
+  "window": {
+    "navigationBarBackgroundColor": "#f7f3ee",
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "映途",
+    "backgroundColor": "#f7f3ee",
+    "backgroundColorTop": "#f7f3ee",
+    "backgroundColorBottom": "#f0e8df",
+    "backgroundTextStyle": "dark"
+  },
+  "tabBar": {
+    "color": "#8d9490",
+    "selectedColor": "#a4684f",
+    "backgroundColor": "#fffaf5",
+    "borderStyle": "white",
+    "list": [
+      { "pagePath": "pages/index/index", "text": "发现" },
+      { "pagePath": "pages/search/search", "text": "作品" },
+      { "pagePath": "pages/pan/pan", "text": "网盘" }
+    ]
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json",
+  "lazyCodeLoading": "requiredComponents"
+}

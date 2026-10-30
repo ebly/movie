@@ -1,0 +1,94 @@
+.types {
+  margin: 24rpx 0 8rpx;
+}
+
+.result {
+  display: flex;
+  gap: 24rpx;
+  padding: 22rpx;
+  margin-bottom: 20rpx;
+  border-radius: 22rpx;
+  background: var(--surface);
+  border: 1rpx solid var(--line);
+  box-shadow: 0 10rpx 24rpx rgba(66, 55, 44, 0.05);
+}
+
+.result-hover {
+  background: var(--surface-soft);
+}
+
+.result-poster {
+  position: relative;
+  flex: 0 0 136rpx;
+  width: 136rpx;
+  height: 196rpx;
+  border-radius: 14rpx;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.result-initial {
+  color: rgba(253, 248, 242, 0.95);
+  font-size: 56rpx;
+}
+
+.result-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.result-title {
+  display: block;
+  font-size: 32rpx;
+  line-height: 1.35;
+}
+
+.result-original {
+  display: block;
+  font-size: 22rpx;
+  color: var(--muted);
+  margin-top: 2rpx;
+}
+
+.result-meta {
+  display: block;
+  margin-top: 6rpx;
+  font-size: 23rpx;
+  color: var(--text-soft);
+}
+
+.result-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10rpx;
+  margin-top: 12rpx;
+}
+
+.badge {
+  padding: 2rpx 14rpx;
+  border-radius: 999rpx;
+  font-size: 20rpx;
+  color: var(--text-soft);
+  background: var(--surface-soft);
+}
+
+.badge.is-good {
+  color: var(--success);
+  background: rgba(78, 123, 98, 0.12);
+}
+
+.result-synopsis {
+  display: block;
+  margin-top: 12rpx;
+  font-size: 23rpx;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.hint {
+  margin-top: 18rpx;
+  font-size: 22rpx;
+  color: var(--muted);
+}

@@ -1,0 +1,155 @@
+<view class="page">
+  <view class="search-bar">
+    <input
+      class="search-input"
+      value="{{q}}"
+      placeholder="片名、别名、演员"
+      placeholder-class="search-placeholder"
+      confirm-type="search"
+      focus="{{focus}}"
+      bindinput="onInput"
+      bindconfirm="onConfirm"
+    />
+    <view wx:if="{{q}}" class="search-clear" bindtap="clearInput">×</view>
+    <view class="search-submit" bindtap="onConfirm">搜索</view>
+  </view>
+
+  <view class="chips types">
+    <view
+      wx:for="{{types}}"
+      wx:key="*this"
+      class="chip {{type === item ? 'is-on' : ''}}"
+      data-type="{{item}}"
+      bindtap="onType"
+    >{{item}}</view>
+  </view>
+
+  <!-- 还没搜过：显示历史记录与热门 -->
+  <block wx:if="{{!searched && !loading}}">
+    <block wx:if="{{history.length}}">
+      <view class="section-head">
+        <text class="section-title serif">最近搜索</text>
+        <text class="section-note" bindtap="clearHistory">清空</text>
+      </view>
+      <view class="chips">
+        <view class="chip" wx:for="{{history}}" wx:key="*this" data-q="{{item}}" bindtap="useHistory">{{item}}</view>
+      </view>
+    </block>
+
+    <block wx:if="{{hot.length}}">
+      <view class="section-head">
+        <text class="section-title serif">热门作品</text>
+      </view>
+      <view class="chips">
+        <view
+          class="chip"
+          wx:for="{{hot}}"
+          wx:key="id"
+          data-title="{{item.title}}"
+          bindtap="panFor"
+        >{{item.title}}</view>
+      </view>
+      <view class="hint">点片名直接去网盘搜；输入关键词可以查站内作品与观看渠道。</view>
+    </block>
+
+    <view wx:if="{{!history.length && !hot.length}}" class="state">
+      输入片名试试，比如「沙丘」「人生切割术」
+    </view>
+  </block>
+
+  <view wx:if="{{loading}}" class="loader">
+    <view class="loader-dot"></view>
+    <view class="loader-dot"></view>
+    <view class="loader-dot"></view>
+  </view>
+
+  <view wx:elif="{{error}}" class="state">
+    <text>{{error}}</text>
+    <view class="state-action">
+      <view class="btn" bindtap="retry">重试</view>
+    </view>
+  </view>
+
+  <block wx:elif="{{searched && items.length}}">
+    <view class="section-head">
+      <text class="section-title serif">站内结果</text>
+      <text class="section-note">共 {{items.length}} 部</text>
+    </view>
+
+    <view
+      class="result"
+      wx:for="{{items}}"
+      wx:key="id"
+      data-id="{{item.id}}"
+      bindtap="openDetail"
+      hover-class="result-hover"
+    >
+      <view class="result-poster" style="{{item.posterStyle}}">
+        <image
+          wx:if="{{item.poster}}"
+          class="poster-img"
+          src="{{item.poster}}"
+          mode="aspectFill"
+          lazy-load
+          data-section="items"
+          data-index="{{index}}"
+          binderror="onPosterError"
+        />
+        <text wx:else class="result-initial serif">{{item.initial}}</text>
+      </view>
+      <view class="result-main">
+        <text class="result-title">{{item.title}}</text>
+        <text wx:if="{{item.original}}" class="result-original">{{item.original}}</text>
+        <text class="result-meta">{{item.meta}}</text>
+        <view class="result-badges">
+          <text class="badge">评分 {{item.ratingText}}</text>
+          <text class="badge">渠道 {{item.offerCount}}</text>
+          <text wx:if="{{item.verifiedCount}}" class="badge is-good">已验证 {{item.verifiedCount}}</text>
+        </view>
+        <text wx:if="{{item.synopsis}}" class="result-synopsis clip-2">{{item.synopsis}}</text>
+      </view>
+    </view>
+
+    <view class="pan-cta" data-title="{{q}}" bindtap="panFor">
+      <text>网盘搜「{{q}}」</text>
+      <text class="pan-cta-go">›</text>
+    </view>
+  </block>
+
+  <block wx:elif="{{searched}}">
+    <view class="state">
+      站内没有「{{q}}」的收录
+    </view>
+
+    <view class="pan-cta is-primary" data-title="{{q}}" bindtap="panFor">
+      <text>直接搜网盘「{{q}}」</text>
+      <text class="pan-cta-go">›</text>
+    </view>
+
+    <block wx:if="{{suggestions.length}}">
+      <view class="section-head">
+        <text class="section-title serif">相近的作品</text>
+      </view>
+      <view class="result" wx:for="{{suggestions}}" wx:key="id" data-id="{{item.id}}" bindtap="openDetail" hover-class="result-hover">
+        <view class="result-poster" style="{{item.posterStyle}}">
+          <image
+            wx:if="{{item.poster}}"
+            class="poster-img"
+            src="{{item.poster}}"
+            mode="aspectFill"
+            lazy-load
+            data-section="suggestions"
+            data-index="{{index}}"
+            binderror="onPosterError"
+          />
+          <text wx:else class="result-initial serif">{{item.initial}}</text>
+        </view>
+        <view class="result-main">
+          <text class="result-title">{{item.title}}</text>
+          <text class="result-meta">{{item.meta}}</text>
+          <text class="result-synopsis clip-2">{{item.synopsis}}</text>
+        </view>
+      </view>
+    </block>
+  </block>
+</view>
