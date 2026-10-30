@@ -1190,6 +1190,7 @@ function renderCatalogList() {
       </div>
       <div class="catalog-meta">
         <span class="tag">${esc(catalogPanLabel(entry.pan))}</span>
+        ${entry.linkValid === false ? `<span class="tag amber">链接无效</span>` : ""}
         ${entry.password ? `<span>提取码 ${esc(entry.password)}</span>` : ""}
         <span class="catalog-link" title="${esc(entry.link)}">${esc(entry.link)}</span>
       </div>

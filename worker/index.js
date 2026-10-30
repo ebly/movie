@@ -297,6 +297,19 @@ function record(execution, promise) {
 
 const CATALOG_PANS = new Set(["quark", "baidu", "aliyun", "xunlei"]);
 
+// 各网盘分享链接的合法形态（必须带分享码）；不合规的不入库、也不对外显示。
+const PAN_LINK_RULES = {
+  quark: /^https:\/\/pan\.quark\.cn\/s\/[A-Za-z0-9]+/i,
+  baidu: /^https:\/\/pan\.baidu\.com\/s\/[A-Za-z0-9_-]+/i,
+  aliyun: /^https:\/\/(www\.)?(alipan|aliyundrive)\.com\/s\/[A-Za-z0-9_-]+/i,
+  xunlei: /^https:\/\/pan\.xunlei\.com\/s\/[A-Za-z0-9_-]+/i
+};
+
+function isValidPanLink(pan, link) {
+  const rule = PAN_LINK_RULES[pan];
+  return Boolean(rule && rule.test(String(link || "")));
+}
+
 function titleKey(value) {
   return String(value || "").toLowerCase().replace(/[\s《》〈〉「」『』【】\[\]（）()：:·.,，。!！?？\-_—\/\\]/g, "");
 }
@@ -314,6 +327,7 @@ function catalogFromRow(row) {
     poster: row.poster || "",
     pan: row.pan || "quark",
     link: row.link || "",
+    linkValid: isValidPanLink(row.pan || "quark", row.link),
     password: row.password || "",
     note: row.note || "",
     updatedAt: row.updated_at || null
@@ -331,7 +345,7 @@ async function catalogMatch(env, query, pan) {
   if (!key) return [];
   const wanted = pan ? String(pan) : "";
   const all = await catalogAll(env);
-  return all.filter((entry) => titleKey(entry.title) === key && (!wanted || entry.pan === wanted));
+  return all.filter((entry) => entry.linkValid && titleKey(entry.title) === key && (!wanted || entry.pan === wanted));
 }
 
 function catalogInput(body) {
@@ -475,7 +489,7 @@ async function handleApi(ctx) {
     const id = Number(catalogItemMatch[1]);
     const entry = (await catalogAll(ctx.env)).find((item) => item.id === id);
     if (!entry) return sendError(ctx, 404, "not_found", "分享不存在");
-    return sendJSON(ctx, 200, { item: entry });
+    return sendJSON(ctx, 200, { item: { ...entry, link: entry.linkValid ? entry.link : "" } });
   }
 
   if (path === "/api" || path === "/api/") {
