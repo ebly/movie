@@ -1,8 +1,13 @@
 "use strict";
 
 const http = require("http");
-const { createApp, DEFAULT_DATA_DIR, DEFAULT_FRONTEND_URL } = require("./app");
+const { createApp } = require("./app");
 const BRAND = require("../config/brand.json");
+
+// 后台固定走远程模式：直接读写线上 Worker 的 D1，不再使用本地文件。
+// 需要指向别的部署时用 REMOTE_API_BASE 覆盖（例如测试环境）。
+const DEFAULT_REMOTE_BASE = "https://yinto.top";
+const remoteBase = String(process.env.REMOTE_API_BASE || DEFAULT_REMOTE_BASE).replace(/\/+$/, "");
 
 const port = Number(process.env.PORT || 4174);
 const host = process.env.HOST || "127.0.0.1";
@@ -12,7 +17,7 @@ if (!Number.isInteger(port) || port < 0 || port > 65535) {
   process.exit(1);
 }
 
-const server = http.createServer(createApp());
+const server = http.createServer(createApp({ remoteApiBase: remoteBase }));
 
 server.requestTimeout = 15_000;
 server.headersTimeout = 10_000;
@@ -29,15 +34,9 @@ server.on("error", (err) => {
 
 server.listen(port, host, () => {
   const shownHost = host === "0.0.0.0" ? "127.0.0.1" : host;
-  const remoteBase = String(process.env.REMOTE_API_BASE || "").replace(/\/+$/, "");
   console.log(`${BRAND.name} 管理后台 已启动: http://${shownHost}:${port}`);
-  if (remoteBase) {
-    console.log(`  模式: 远程 —— 所有请求转发到 ${remoteBase}/api/admin/*`);
-    console.log(`  前台地址: ${process.env.FRONTEND_URL || remoteBase}`);
-  } else {
-    console.log(`  模式: 本地文件 —— 数据目录 ${process.env.ADMIN_DATA_DIR || DEFAULT_DATA_DIR}`);
-    console.log(`  前台地址: ${process.env.FRONTEND_URL || DEFAULT_FRONTEND_URL}`);
-  }
+  console.log(`  模式: 远程 —— 所有请求转发到 ${remoteBase}/api/admin/*`);
+  console.log(`  前台地址: ${process.env.FRONTEND_URL || remoteBase}`);
   console.log("按 Ctrl+C 停止。");
 });
 

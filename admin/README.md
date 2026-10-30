@@ -3,28 +3,16 @@
 映途的数据看板与用户反馈后台，代码在 `movie/admin/`，但仍是一个**独立进程、独立端口**：不再挂在 `/admin/` 下面，也不参与前台进程。后台只读，不含片库编辑。
 
 - 后台界面：http://127.0.0.1:4174
-- 前台站点：[..](..)（默认 http://127.0.0.1:4173）
+- 前台站点：https://yinto.top（远程模式默认；本地开发也可 http://127.0.0.1:4173）
 
-支持两种数据源模式，切法只差一个环境变量：
+**固定走远程模式**：`npm start` 直接把所有请求转发到线上 Worker，读写线上 D1，不再使用本地文件。
 
-| 模式 | 触发条件 | 数据来自 | 适用场景 |
-| --- | --- | --- | --- |
-| **本地文件**（默认） | 不设 `REMOTE_API_BASE` | `../data/` 下的日志文件 | 本地开发、看板与反馈实时可见 |
-| **远程** | 设 `REMOTE_API_BASE=https://你的域名` | 线上 Cloudflare Worker 的 D1 | 查看已经上线的站点数据 |
+## 远程模式（默认，读写线上 D1）
 
-## 本地文件模式（默认）
-
-前台进程写日志、后台进程只读，两者通过 `../data/` 里的文件通信，没有 RPC、没有数据库：
-
-| 文件 | 谁写 | 谁读 |
-| --- | --- | --- |
-| `analytics.ndjson` | 前台 | 后台（每次打开看板重新载入） |
-| `feedback.ndjson` | 前台 | 后台（每次请求重新读取） |
-
-## 远程模式（管理线上 D1）
+默认目标 `https://yinto.top`，换部署地址用 `REMOTE_API_BASE` 覆盖：
 
 ```bash
-REMOTE_API_BASE=https://yingtu.你的域名.workers.dev npm start
+REMOTE_API_BASE=https://另一个域名 npm start
 ```
 
 打开后台，用**线上后台的密码**登录（即 Worker 上 `ADMIN_PASSWORD` 的值，不是本地那个）。侧边栏会出现绿色的「线上 D1」徽章，说明看板读的是线上数据。
@@ -38,6 +26,8 @@ REMOTE_API_BASE=https://yingtu.你的域名.workers.dev npm start
 - 线上不可达时返回 `502 remote_unreachable`，不会静默吞掉。
 
 为什么不直接让浏览器连线上 Worker：Worker 没有 CORS 头，跨域拿不到响应；线上会话 Cookie 是 HttpOnly，跨站也带不过去。
+
+> 本地文件模式（读 `../data/` 的 ndjson）仅供单元测试使用（`npm test` 直接构造本地 app），`npm start` 不再进入该模式。
 
 > 注意：远程模式的连接是**后台进程发起的**，所以这台机器必须能访问那个域名。本机 DNS 被污染或网络被封锁时（`*.workers.dev` 在国内就是这样），先绑一个自己的域名；如果走代理能通，用 `NODE_OPTIONS=--use-env-proxy` 启动，Node 会读取 `HTTPS_PROXY`（Node 22 起支持，实验性）。
 
@@ -97,12 +87,9 @@ ADMIN_PASSWORD="换成你自己的强密码" npm start
 | --- | --- | --- |
 | `PORT` | `4174` | 后台端口，不能和前台 `4173` 撞车 |
 | `HOST` | `127.0.0.1` | 监听地址；`0.0.0.0` 才允许局域网访问 |
-| `ADMIN_PASSWORD` | `yingtu-admin` | 管理密码，正式环境必须改 |
-| `ADMIN_DATA_DIR` | `../data` | 数据目录，前后台必须指向同一份 |
-| `ANALYTICS_FILE` | `$ADMIN_DATA_DIR/analytics.ndjson` | 行为日志 |
-| `FEEDBACK_FILE` | `$ADMIN_DATA_DIR/feedback.ndjson` | 反馈日志 |
-| `FRONTEND_URL` | `http://127.0.0.1:4173` | 后台里「查看前台」链接指向的地址 |
-| `REMOTE_API_BASE` | 空 | 设成线上 Worker 域名即切到远程模式；留空则读本地文件 |
+| `REMOTE_API_BASE` | `https://yinto.top` | 远程模式转发的线上 Worker 域名；默认即远程，可覆盖成其它部署 |
+| `FRONTEND_URL` | 远程域名 | 后台里「查看前台」链接指向的地址 |
+| `ADMIN_DATA_DIR` | `../data` | 仅单元测试用的本地数据目录；`npm start` 不读 |
 
 ## 接口
 
