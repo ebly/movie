@@ -436,9 +436,9 @@ class AnalyticsStore {
         };
       });
 
-    // 来源 IP 明细：按事件数排序，最活跃的来源（通常也就是最该盯的）排在前面。
+    // 来源 IP 明细：按最近访问时间倒序，最近出现的来源排前面（事件数仅作并列次序）。
     const topIps = [...ipMap.values()]
-      .sort((a, b) => b.count - a.count || String(b.lastAt).localeCompare(String(a.lastAt)))
+      .sort((a, b) => String(b.lastAt).localeCompare(String(a.lastAt)) || b.count - a.count)
       .slice(0, 12)
       .map((entry) => ({
         ip: entry.ip,

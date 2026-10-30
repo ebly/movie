@@ -18,6 +18,9 @@ import asnLib from "../shared/asn.js";
 
 const { DAY_MS, dayKey, startOfDay } = statsTime;
 const { geoLabel } = geoLib;
+
+// 看板各列表最多返回的条数：前端每张卡片显示 10 条，其余在「查看全部」弹框里分页。
+const LIST_LIMIT = 200;
 const { isHosting, splitVisitors } = asnLib;
 
 function percentChange(current, previous) {
@@ -398,7 +401,7 @@ export function createAnalytics({ db, providers = PROVIDERS, titleNames = new Ma
       .filter((event) => event.type !== "page")
       .slice()
       .sort((a, b) => String(b.at).localeCompare(String(a.at)))
-      .slice(0, 14)
+      .slice(0, LIST_LIMIT)
       .map((event) => {
         if (event.type === "search") {
           return {
@@ -434,24 +437,24 @@ export function createAnalytics({ db, providers = PROVIDERS, titleNames = new Ma
         visitors: percentChange(currentSummary.visitors, previousSummary.visitors)
       },
       trend,
-      topSearches: topEntries(searchMap, 8),
-      zeroSearches: topEntries(zeroMap, 8),
+      topSearches: topEntries(searchMap, LIST_LIMIT),
+      zeroSearches: topEntries(zeroMap, LIST_LIMIT),
       topTitles: [...titleMap.values()]
         .sort((a, b) => b.views - a.views || b.clicks - a.clicks)
-        .slice(0, 8),
+        .slice(0, LIST_LIMIT),
       platforms: [...platformMap.values()]
         .sort((a, b) => b.clicks - a.clicks)
-        .slice(0, 8),
+        .slice(0, LIST_LIMIT),
       topPaths: [...pathMap.values()]
         .sort((a, b) => b.count - a.count)
-        .slice(0, 6)
+        .slice(0, LIST_LIMIT)
         .map((entry) => ({ path: entry.path, views: entry.count, visitors: entry.visitors.size, lastAt: entry.lastAt })),
       langs: [...langMap.values()]
         .sort((a, b) => b.count - a.count)
         .map((entry) => ({ lang: entry.lang, views: entry.count, visitors: entry.visitors.size })),
       topGeo: [...geoMap.values()]
         .sort((a, b) => b.count - a.count || String(b.lastAt).localeCompare(String(a.lastAt)))
-        .slice(0, 8)
+        .slice(0, LIST_LIMIT)
         .map((entry) => ({
           country: entry.country,
           city: entry.city,
@@ -470,10 +473,10 @@ export function createAnalytics({ db, providers = PROVIDERS, titleNames = new Ma
           events: entry.count,
           lastAt: entry.lastAt
         })),
-      // 来源 IP 明细：按事件数排序，最活跃的来源（通常也就是最该盯的）排在前面。
+      // 来源 IP 明细：按最近访问时间倒序，最近出现的来源排前面（事件数仅作并列次序）。
       topIps: [...ipMap.values()]
-        .sort((a, b) => b.count - a.count || String(b.lastAt).localeCompare(String(a.lastAt)))
-        .slice(0, 12)
+        .sort((a, b) => String(b.lastAt).localeCompare(String(a.lastAt)) || b.count - a.count)
+        .slice(0, LIST_LIMIT)
         .map((entry) => ({
           ip: entry.ip,
           label: geoLabel(entry.country, entry.city),
@@ -490,7 +493,7 @@ export function createAnalytics({ db, providers = PROVIDERS, titleNames = new Ma
         // 真实访客排在前面，机房来源排在未经页面信标的编号之后。
         .sort((a, b) => visitorRank(b, currentHumans) - visitorRank(a, currentHumans)
           || String(b.lastAt).localeCompare(String(a.lastAt)))
-        .slice(0, 10)
+        .slice(0, LIST_LIMIT)
         .map((entry) => ({
           id: entry.id,
           label: `访客 ${String(entry.id).slice(0, 8)}`,

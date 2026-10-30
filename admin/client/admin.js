@@ -59,6 +59,7 @@ const state = {
   meta: null,
   dashboard: null,
   days: 30,
+  lists: {},
   feedback: { q: "", page: 0, limit: 12, focus: false },
   feedbackTimer: null,
   view: "login",
@@ -428,6 +429,32 @@ function metricCard({ label, value, change, note, icon, color }) {
   </div>`;
 }
 
+const CARD_LIMIT = 10;
+
+function barRow(name, value, max, color) {
+  return `<div class="bar-row">
+          <span class="bar-name">${esc(name)}</span>
+          <span class="bar-track"><span class="bar-fill" style="width:${Math.max(4, Math.round((value / max) * 100))}%;--bar-color:${color}"></span></span>
+          <span class="bar-count">${num(value)}</span>
+        </div>`;
+}
+
+function listCard({ key, title, sub, mono, listClass, entries, row, empty, extra = "" }) {
+  state.lists[key] = { title, entries, row, listClass };
+  const shown = entries.slice(0, CARD_LIMIT);
+  const right = entries.length > CARD_LIMIT
+    ? `<button class="panel-link" type="button" data-open-list="${esc(key)}">查看全部 ${ICONS.arrowRight}</button>`
+    : `<span class="mono">${mono || ""}</span>`;
+  return `<section class="panel panel-pad">
+      <div class="panel-head">
+        <div><h2>${title}</h2><p>${sub}</p></div>
+        ${right}
+      </div>
+      ${shown.length ? `<div class="${listClass}">${shown.map((entry, index) => row(entry, index)).join("")}</div>` : `<div class="rank-empty">${empty || "暂无数据。"}</div>`}
+      ${extra}
+    </section>`;
+}
+
 function dashboardHTML(data) {
   const overview = data.overview;
   const days = data.range.days;
@@ -437,47 +464,25 @@ function dashboardHTML(data) {
     </div>
     <button class="btn-icon" type="button" data-refresh-dashboard title="刷新数据" aria-label="刷新数据">${ICONS.refresh}</button>`;
 
-  const platformRows = data.platforms.length
-    ? data.platforms.map((entry) => {
-        const provider = (state.meta.providers || []).find((item) => item.id === entry.id);
-        const max = Math.max(...data.platforms.map((item) => item.clicks), 1);
-        return `<div class="bar-row">
-          <span class="bar-name">${esc(entry.name)}</span>
-          <span class="bar-track"><span class="bar-fill" style="width:${Math.max(4, Math.round((entry.clicks / max) * 100))}%;--bar-color:${esc(provider ? provider.color : "#a83232")}"></span></span>
-          <span class="bar-count">${num(entry.clicks)}</span>
-        </div>`;
-      }).join("")
-    : `<div class="rank-empty">还没有平台跳转数据。</div>`;
-
-  // 页面信标（/api/track）早就在落库，这里第一次把它聚合成路径与语言分布。
+  const providerOf = (id) => (state.meta.providers || []).find((item) => item.id === id);
   const LANG_NAMES = { zh: "中文", en: "English" };
-  const barRows = (entries, { name, value, visitors, empty }) => {
-    if (!entries.length) return `<div class="rank-empty">${empty}</div>`;
-    const max = Math.max(...entries.map(value), 1);
-    return entries.map((entry) => `<div class="bar-row">
-          <span class="bar-name">${esc(name(entry))}</span>
-          <span class="bar-track"><span class="bar-fill" style="width:${Math.max(4, Math.round((value(entry) / max) * 100))}%;--bar-color:var(--amber)"></span></span>
-          <span class="bar-count" title="${visitors(entry)} 个真实访客">${num(value(entry))}</span>
-        </div>`).join("");
-  };
-  const pageRows = barRows(data.topPaths || [], {
-    name: (entry) => entry.path,
-    value: (entry) => entry.views,
-    visitors: (entry) => entry.visitors,
-    empty: "还没有页面访问数据。"
-  });
-  const langRows = barRows(data.langs || [], {
-    name: (entry) => LANG_NAMES[entry.lang] || entry.lang,
-    value: (entry) => entry.views,
-    visitors: (entry) => entry.visitors,
-    empty: "还没有语言数据。"
-  });
-  const geoRows = barRows(data.topGeo || [], {
-    name: (entry) => entry.label,
-    value: (entry) => entry.views,
-    visitors: (entry) => entry.visitors,
-    empty: "还没有地区数据。"
-  });
+
+  const platforms = data.platforms || [];
+  const platformMax = Math.max(1, ...platforms.map((entry) => entry.clicks));
+  const platformRow = (entry) => barRow(entry.name, entry.clicks, platformMax, esc((providerOf(entry.id) || {}).color || "#a83232"));
+
+  const paths = data.topPaths || [];
+  const pathMax = Math.max(1, ...paths.map((entry) => entry.views));
+  const pageRow = (entry) => barRow(entry.path, entry.views, pathMax, "var(--amber)");
+
+  const langs = data.langs || [];
+  const langMax = Math.max(1, ...langs.map((entry) => entry.views));
+  const langRow = (entry) => barRow(LANG_NAMES[entry.lang] || entry.lang, entry.views, langMax, "var(--amber)");
+
+  const geo = data.topGeo || [];
+  const geoMax = Math.max(1, ...geo.map((entry) => entry.views));
+  const geoRow = (entry) => barRow(entry.label, entry.views, geoMax, "var(--amber)");
+
   // 疑似自动化的来源地单独提一句：它们不进上面的地区分布（那里只算打过页面信标的）。
   const suspectGeo = data.suspectGeo || [];
   const suspectGeoNote = suspectGeo.length
@@ -485,15 +490,43 @@ function dashboardHTML(data) {
       .map((entry) => `${esc(entry.label)} ${num(entry.events)}`)
       .join("、")}。</p>`
     : "";
+
+  const searchRow = (entry, index) => `<div class="rank-item">
+          <span class="rank-no">${String(index + 1).padStart(2, "0")}</span>
+          <div class="rank-main"><strong>${esc(entry.query)}</strong><small>最近 ${relativeTime(entry.lastAt)}</small></div>
+          <div class="rank-meta">${entry.zeroCount ? `<span class="tag amber">${entry.zeroCount} 次无结果</span>` : ""}<span class="rank-count">${num(entry.count)}</span></div>
+        </div>`;
+
+  const zeroRow = (entry, index) => `<div class="rank-item">
+          <span class="rank-no">${String(index + 1).padStart(2, "0")}</span>
+          <div class="rank-main"><strong>${esc(entry.query)}</strong><small>最近 ${relativeTime(entry.lastAt)}</small></div>
+          <span class="rank-count">${num(entry.count)}</span>
+        </div>`;
+
+  const titleRow = (entry, index) => `<a class="rank-item" href="${FRONTEND}/#/title/${encodeURIComponent(entry.id)}" target="_blank" rel="noopener">
+          <span class="rank-no">${String(index + 1).padStart(2, "0")}</span>
+          <div class="rank-main"><strong>${esc(entry.title)}</strong><small>${num(entry.views)} 次浏览 · ${num(entry.clicks)} 次跳转</small></div>
+          <span class="rank-count">${num(entry.views)}</span>
+        </a>`;
+
   // 来源 IP 明细：按事件数排序，最活跃的来源在前；没打过页面信标的整行压暗，
   // 机房 / 代理网段（按 ASN 判定）额外标出来，哪怕它执行过页面脚本。
-  const ipEntries = data.topIps || [];
-  const ipRows = ipEntries.length ? `<div class="ip-list">${ipEntries.map((entry) => `
-        <div class="ip-row${entry.real ? "" : " is-suspect"}${entry.hosting ? " is-hosting" : ""}">
+  const ipRow = (entry) => `<div class="ip-row${entry.real ? "" : " is-suspect"}${entry.hosting ? " is-hosting" : ""}">
           <div class="ip-main"><strong title="${esc(entry.ip)}">${esc(entry.ip)}</strong><small>${esc(entry.label)}${entry.hosting ? ` · 机房${entry.asOrg ? ` ${esc(entry.asOrg)}` : ""}${entry.asn ? ` · AS${num(entry.asn)}` : ""}` : ""}${entry.visitors > 1 ? ` · ${num(entry.visitors)} 个编号` : ""}</small></div>
           <div class="ip-counts"><b>${num(entry.events)}</b><span>${relativeTime(entry.lastAt)}</span></div>
-        </div>`).join("")}</div>`
-    : `<div class="rank-empty">还没有来源 IP 数据。</div>`;
+        </div>`;
+
+  const visitorRow = (entry) => `<div class="visitor-row${entry.real ? "" : entry.hosting ? " is-hosting" : " is-suspect"}">
+          <span class="visitor-avatar">${esc(entry.id.slice(0, 2).toUpperCase())}</span>
+          <div class="visitor-main"><strong>${esc(entry.label)}</strong><small>${entry.ip ? `${esc(entry.ip)} · ` : ""}${entry.real ? `最近 ${relativeTime(entry.lastAt)}` : entry.hosting ? `机房来源${entry.asOrg ? ` ${esc(entry.asOrg)}` : ""} · 最近 ${relativeTime(entry.lastAt)}` : `未执行页面脚本 · 最近 ${relativeTime(entry.lastAt)}`}</small></div>
+          <div class="visitor-counts"><span>页 <b>${entry.pages}</b></span><span>搜 <b>${entry.searches}</b></span><span>看 <b>${entry.views}</b></span><span>点 <b>${entry.clicks}</b></span></div>
+        </div>`;
+
+  const activityRow = (event) => `<div class="activity-item">
+          <span class="activity-dot ${esc(event.type)}"></span>
+          <div class="activity-main"><strong>${esc(event.label)}</strong><small>${esc(event.detail)}</small></div>
+          <span class="activity-time">${relativeTime(event.at)}</span>
+        </div>`;
 
   return `${pageHead({
     eyebrow: "Overview",
@@ -558,133 +591,27 @@ function dashboardHTML(data) {
   </section>
 
   <div class="board-grid">
-    <section class="panel panel-pad">
-      <div class="panel-head">
-        <div><h2>热门搜索</h2><p>用户正在找什么，按搜索次数排序。</p></div>
-        <span class="mono">TOP 8</span>
-      </div>
-      ${data.topSearches.length ? `<div class="rank-list">${data.topSearches.map((entry, index) => `
-        <div class="rank-item">
-          <span class="rank-no">${String(index + 1).padStart(2, "0")}</span>
-          <div class="rank-main"><strong>${esc(entry.query)}</strong><small>最近 ${relativeTime(entry.lastAt)}</small></div>
-          <div class="rank-meta">${entry.zeroCount ? `<span class="tag amber">${entry.zeroCount} 次无结果</span>` : ""}<span class="rank-count">${num(entry.count)}</span></div>
-        </div>`).join("")}</div>` : `<div class="rank-empty">还没有搜索记录。</div>`}
-    </section>
-
-    <section class="panel panel-pad">
-      <div class="panel-head">
-        <div><h2>搜索无结果</h2><p>这些关键词没有匹配到片库，值得补片或加别名。</p></div>
-        <span class="mono">GAPS</span>
-      </div>
-      ${data.zeroSearches.length ? `<div class="rank-list">${data.zeroSearches.map((entry, index) => `
-        <div class="rank-item">
-          <span class="rank-no">${String(index + 1).padStart(2, "0")}</span>
-          <div class="rank-main"><strong>${esc(entry.query)}</strong><small>最近 ${relativeTime(entry.lastAt)}</small></div>
-          <span class="rank-count">${num(entry.count)}</span>
-        </div>`).join("")}</div>` : `<div class="rank-empty"><span class="check">✓</span>所有搜索都找到了结果。</div>`}
-    </section>
+    ${listCard({ key: "topSearches", title: "热门搜索", sub: "用户正在找什么，按搜索次数排序。", mono: "TOP 8", listClass: "rank-list", entries: data.topSearches || [], row: searchRow, empty: "还没有搜索记录。" })}
+    ${listCard({ key: "zeroSearches", title: "搜索无结果", sub: "这些关键词没有匹配到片库，值得补片或加别名。", mono: "GAPS", listClass: "rank-list", entries: data.zeroSearches || [], row: zeroRow, empty: `<span class="check">✓</span>所有搜索都找到了结果。` })}
   </div>
 
   <div class="board-grid">
-    <section class="panel panel-pad">
-      <div class="panel-head">
-        <div><h2>热门作品</h2><p>详情页浏览最多的作品，以及被带往平台的次数。</p></div>
-        <span class="mono">TITLES</span>
-      </div>
-      ${data.topTitles.length ? `<div class="rank-list">${data.topTitles.map((entry, index) => `
-        <a class="rank-item" href="${FRONTEND}/#/title/${encodeURIComponent(entry.id)}" target="_blank" rel="noopener">
-          <span class="rank-no">${String(index + 1).padStart(2, "0")}</span>
-          <div class="rank-main"><strong>${esc(entry.title)}</strong><small>${num(entry.views)} 次浏览 · ${num(entry.clicks)} 次跳转</small></div>
-          <span class="rank-count">${num(entry.views)}</span>
-        </a>`).join("")}</div>` : `<div class="rank-empty">还没有作品浏览数据。</div>`}
-    </section>
-
-    <section class="panel panel-pad">
-      <div class="panel-head">
-        <div><h2>平台跳转</h2><p>用户从详情页前往各正版平台的次数。</p></div>
-        <span class="mono">PLATFORMS</span>
-      </div>
-      <div class="bar-list">${platformRows}</div>
-    </section>
+    ${listCard({ key: "topTitles", title: "热门作品", sub: "详情页浏览最多的作品，以及被带往平台的次数。", mono: "TITLES", listClass: "rank-list", entries: data.topTitles || [], row: titleRow, empty: "还没有作品浏览数据。" })}
+    ${listCard({ key: "platforms", title: "平台跳转", sub: "用户从详情页前往各正版平台的次数。", mono: "PLATFORMS", listClass: "bar-list", entries: platforms, row: platformRow, empty: "还没有平台跳转数据。" })}
   </div>
 
   <div class="board-grid four">
-    <section class="panel panel-pad">
-      <div class="panel-head">
-        <div><h2>页面访问</h2><p>前台页面信标的落点，共 ${num(overview.pageviews)} 次。</p></div>
-        <span class="mono">PAGES</span>
-      </div>
-      <div class="bar-list">${pageRows}</div>
-    </section>
-
-    <section class="panel panel-pad">
-      <div class="panel-head">
-        <div><h2>界面语言</h2><p>中英文两个界面各被打开的页面数。</p></div>
-        <span class="mono">LANG</span>
-      </div>
-      <div class="bar-list">${langRows}</div>
-    </section>
-
-    <section class="panel panel-pad">
-      <div class="panel-head">
-        <div><h2>访问地区</h2><p>Cloudflare 边缘 GeoIP 解析出的国家与城市，只算打过页面信标的访客。</p></div>
-        <span class="mono">GEO</span>
-      </div>
-      <div class="bar-list">${geoRows}</div>
-      ${suspectGeoNote}
-    </section>
-
-    <section class="panel panel-pad">
-      <div class="panel-head">
-        <div><h2>访问来源</h2><p>访客的真实 IP，按事件数排序；压暗的行是没执行页面脚本或来自机房、代理网段的来源。</p></div>
-        <span class="mono">SOURCE IP</span>
-      </div>
-      ${ipRows}
-    </section>
+    ${listCard({ key: "topPaths", title: "页面访问", sub: `前台页面信标的落点，共 ${num(overview.pageviews)} 次。`, mono: "PAGES", listClass: "bar-list", entries: paths, row: pageRow, empty: "还没有页面访问数据。" })}
+    ${listCard({ key: "langs", title: "界面语言", sub: "中英文两个界面各被打开的页面数。", mono: "LANG", listClass: "bar-list", entries: langs, row: langRow, empty: "还没有语言数据。" })}
+    ${listCard({ key: "topGeo", title: "访问地区", sub: "Cloudflare 边缘 GeoIP 解析出的国家与城市，只算打过页面信标的访客。", mono: "GEO", listClass: "bar-list", entries: geo, row: geoRow, empty: "还没有地区数据。", extra: suspectGeoNote })}
+    ${listCard({ key: "topIps", title: "访问来源", sub: "访客的真实 IP，按最近访问时间排序；压暗的行是没执行页面脚本或来自机房、代理网段的来源。", mono: "SOURCE IP", listClass: "ip-list", entries: data.topIps || [], row: ipRow, empty: "还没有来源 IP 数据。" })}
   </div>
 
-  <div class="board-grid three">
-    <section class="panel panel-pad">
-      <div class="panel-head">
-        <div><h2>访客活跃度</h2><p>真实访客在前；机房来源与未执行页面脚本的编号排在后面。</p></div>
-        <span class="mono">VISITORS</span>
-      </div>
-      ${data.visitors.length ? `<div class="visitor-list">${data.visitors.map((entry) => `
-        <div class="visitor-row${entry.real ? "" : entry.hosting ? " is-hosting" : " is-suspect"}">
-          <span class="visitor-avatar">${esc(entry.id.slice(0, 2).toUpperCase())}</span>
-          <div class="visitor-main"><strong>${esc(entry.label)}</strong><small>${entry.ip ? `${esc(entry.ip)} · ` : ""}${entry.real ? `最近 ${relativeTime(entry.lastAt)}` : entry.hosting ? `机房来源${entry.asOrg ? ` ${esc(entry.asOrg)}` : ""} · 最近 ${relativeTime(entry.lastAt)}` : `未执行页面脚本 · 最近 ${relativeTime(entry.lastAt)}`}</small></div>
-          <div class="visitor-counts"><span>页 <b>${entry.pages}</b></span><span>搜 <b>${entry.searches}</b></span><span>看 <b>${entry.views}</b></span><span>点 <b>${entry.clicks}</b></span></div>
-        </div>`).join("")}</div>` : `<div class="rank-empty">还没有访客行为。</div>`}
-      <div class="privacy-note">${ICONS.shield}<span>访客编号来自随机 Cookie，只用于去重；事件另带来源 IP、GeoIP 解析出的国家与城市，以及 Cloudflare 边缘给出的 ASN 与网络组织，用来认出反复打点的采集脚本和机房来源。这些只在这个本地后台可见，前台公开接口不返回，也不接第三方统计。只有打过页面信标、且不是机房或代理网段的编号才计入「真实访客」；其余落在「未执行页面脚本」或「机房来源」里。</span></div>
-    </section>
-
-    <section class="panel panel-pad">
-      <div class="panel-head">
-        <div><h2>最近动态</h2><p>最新的搜索、浏览与跳转。</p></div>
-        <span class="mono">LIVE</span>
-      </div>
-      ${data.recent.length ? `<div class="activity">${data.recent.map((event) => `
-        <div class="activity-item">
-          <span class="activity-dot ${esc(event.type)}"></span>
-          <div class="activity-main"><strong>${esc(event.label)}</strong><small>${esc(event.detail)}</small></div>
-          <span class="activity-time">${relativeTime(event.at)}</span>
-        </div>`).join("")}</div>` : `<div class="rank-empty">还没有行为记录。</div>`}
-    </section>
-
-    <section class="panel panel-pad">
-      <div class="panel-head">
-        <div><h2>最新反馈</h2><p>来自前台「许个愿」的留言。</p></div>
-        <a class="mono panel-link" href="#/feedback">查看全部 ${ICONS.arrowRight}</a>
-      </div>
-      ${data.feedback.length ? `<div class="feedback-list">${data.feedback.map((entry) => `
-        <div class="feedback-item">
-          <p>${esc(entry.message)}</p>
-          <small><span>${esc(entry.contact || "未留联系方式")}</span><time>${dateTime(entry.createdAt)}</time></small>
-        </div>`).join("")}</div>` : `<div class="rank-empty">还没有收到反馈。</div>`}
-    </section>
+  <div class="board-grid">
+    ${listCard({ key: "visitors", title: "访客活跃度", sub: "真实访客在前；机房来源与未执行页面脚本的编号排在后面。", mono: "VISITORS", listClass: "visitor-list", entries: data.visitors || [], row: visitorRow, empty: "还没有访客行为。", extra: `<div class="privacy-note">${ICONS.shield}<span>访客编号来自随机 Cookie，只用于去重；事件另带来源 IP、GeoIP 解析出的国家与城市，以及 Cloudflare 边缘给出的 ASN 与网络组织，用来认出反复打点的采集脚本和机房来源。这些只在这个本地后台可见，前台公开接口不返回，也不接第三方统计。只有打过页面信标、且不是机房或代理网段的编号才计入「真实访客」；其余落在「未执行页面脚本」或「机房来源」里。</span></div>` })}
+    ${listCard({ key: "recent", title: "最近动态", sub: "最新的搜索、浏览与跳转。", mono: "LIVE", listClass: "activity", entries: data.recent || [], row: activityRow, empty: "还没有行为记录。" })}
   </div>`;
 }
-
 function niceMax(value) {
   if (value <= 4) return 4;
   const power = 10 ** Math.floor(Math.log10(value));
@@ -693,10 +620,10 @@ function niceMax(value) {
   return step * power;
 }
 
+const CHART_GEOM = { width: 920, height: 250, pad: { left: 44, right: 18, top: 20, bottom: 34 } };
+
 function chartHTML(trend) {
-  const width = 920;
-  const height = 250;
-  const pad = { left: 44, right: 18, top: 20, bottom: 34 };
+  const { width, height, pad } = CHART_GEOM;
   const innerW = width - pad.left - pad.right;
   const innerH = height - pad.top - pad.bottom;
   const maxValue = niceMax(Math.max(1, ...trend.map((point) => Math.max(point.pageviews || 0, point.searches, point.views))));
@@ -749,6 +676,22 @@ function chartHTML(trend) {
       <path d="${line("searches")}" fill="none" stroke="#a83232" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>
       ${dots}
       ${xLabels}
+      <g class="chart-cross" pointer-events="none" style="display:none">
+        <line class="chart-cross-v" stroke="#2f3230" stroke-opacity=".38" stroke-width="1" stroke-dasharray="3 3"/>
+        <line class="chart-cross-h" stroke="#2f3230" stroke-opacity=".26" stroke-width="1" stroke-dasharray="3 3"/>
+        <circle class="chart-marker" data-series="pageviews" r="4.5" fill="#fbf7ef" stroke="#9a6b22" stroke-width="2"/>
+        <circle class="chart-marker" data-series="searches" r="4.5" fill="#fbf7ef" stroke="#a83232" stroke-width="2"/>
+        <circle class="chart-marker" data-series="views" r="4.5" fill="#fbf7ef" stroke="#2d7a5a" stroke-width="2"/>
+      </g>
+      <g class="chart-tip" pointer-events="none" style="display:none">
+        <rect class="chart-tip-bg" rx="8" width="150" height="96" fill="#0d2a2e" fill-opacity=".94"/>
+        <text class="chart-tip-date" fill="#f7f3ee" font-family="JetBrains Mono, monospace" font-size="9.5" font-weight="600"></text>
+        <text class="chart-tip-l1" fill="#e7c98a" font-family="JetBrains Mono, monospace" font-size="9"></text>
+        <text class="chart-tip-l2" fill="#e59b9b" font-family="JetBrains Mono, monospace" font-size="9"></text>
+        <text class="chart-tip-l3" fill="#9fd7bd" font-family="JetBrains Mono, monospace" font-size="9"></text>
+        <text class="chart-tip-l4" fill="#c9d1cc" font-family="JetBrains Mono, monospace" font-size="9"></text>
+      </g>
+      <rect class="chart-hit" x="${pad.left}" y="${pad.top}" width="${innerW}" height="${innerH}" fill="transparent" pointer-events="all" style="cursor:crosshair"/>
     </svg>
   </div>`;
 }
@@ -764,6 +707,118 @@ function bindDashboard() {
   });
   const refresh = $("[data-refresh-dashboard]");
   if (refresh) refresh.addEventListener("click", () => renderDashboard());
+  $$("[data-open-list]").forEach((button) => {
+    button.addEventListener("click", () => openListModal(button.dataset.openList));
+  });
+  bindChartInteraction();
+}
+
+function bindChartInteraction() {
+  const svg = document.querySelector(".chart-scroll svg");
+  const trend = state.dashboard && state.dashboard.trend;
+  if (!svg || !Array.isArray(trend) || !trend.length) return;
+
+  const { width, height, pad } = CHART_GEOM;
+  const innerW = width - pad.left - pad.right;
+  const innerH = height - pad.top - pad.bottom;
+  const stepX = trend.length > 1 ? innerW / (trend.length - 1) : 0;
+  const xAt = (index) => (trend.length > 1 ? pad.left + index * stepX : pad.left + innerW / 2);
+  const maxValue = niceMax(Math.max(1, ...trend.map((point) => Math.max(point.pageviews || 0, point.searches, point.views))));
+  const yAt = (value) => pad.top + innerH - (value / maxValue) * innerH;
+
+  const cross = svg.querySelector(".chart-cross");
+  const vline = svg.querySelector(".chart-cross-v");
+  const hline = svg.querySelector(".chart-cross-h");
+  const hit = svg.querySelector(".chart-hit");
+  const tip = svg.querySelector(".chart-tip");
+  const tipBg = svg.querySelector(".chart-tip-bg");
+  const tipText = {
+    date: svg.querySelector(".chart-tip-date"),
+    l1: svg.querySelector(".chart-tip-l1"),
+    l2: svg.querySelector(".chart-tip-l2"),
+    l3: svg.querySelector(".chart-tip-l3"),
+    l4: svg.querySelector(".chart-tip-l4")
+  };
+  const markers = {
+    pageviews: svg.querySelector('.chart-marker[data-series="pageviews"]'),
+    searches: svg.querySelector('.chart-marker[data-series="searches"]'),
+    views: svg.querySelector('.chart-marker[data-series="views"]')
+  };
+  if (!cross || !vline || !hline || !hit || !tip || !tipBg) return;
+
+  const toSvg = (event) => {
+    const point = svg.createSVGPoint();
+    point.x = event.clientX;
+    point.y = event.clientY;
+    const ctm = svg.getScreenCTM();
+    return ctm ? point.matrixTransform(ctm.inverse()) : point;
+  };
+
+  const TIP_W = 150;
+  const TIP_H = 96;
+
+  function show(event) {
+    const p = toSvg(event);
+    if (p.x < pad.left - 8 || p.x > width - pad.right + 8) {
+      hide();
+      return;
+    }
+    let index = trend.length > 1 ? Math.round((p.x - pad.left) / stepX) : 0;
+    index = Math.max(0, Math.min(trend.length - 1, index));
+    const point = trend[index];
+    const px = xAt(index);
+    const py = Math.max(pad.top, Math.min(pad.top + innerH, p.y));
+
+    vline.setAttribute("x1", px); vline.setAttribute("x2", px);
+    vline.setAttribute("y1", pad.top); vline.setAttribute("y2", pad.top + innerH);
+    hline.setAttribute("x1", pad.left); hline.setAttribute("x2", width - pad.right);
+    hline.setAttribute("y1", py); hline.setAttribute("y2", py);
+
+    const placeMarker = (marker, value) => {
+      if (!marker) return;
+      marker.setAttribute("cx", px);
+      marker.setAttribute("cy", yAt(value));
+      marker.setAttribute("data-value", value);
+    };
+    placeMarker(markers.pageviews, point.pageviews || 0);
+    placeMarker(markers.searches, point.searches || 0);
+    placeMarker(markers.views, point.views || 0);
+
+    let tipX = px + 14;
+    if (tipX + TIP_W > width - 6) tipX = px - TIP_W - 14;
+    tipX = Math.max(4, tipX);
+    let tipY = Math.max(pad.top, Math.min(py - 24, height - pad.bottom - TIP_H));
+    tipBg.setAttribute("x", tipX);
+    tipBg.setAttribute("y", tipY);
+    const textX = tipX + 11;
+    const lines = [
+      ["date", point.date, tipY + 19],
+      ["l1", `页面浏览 ${point.pageviews || 0}`, tipY + 38],
+      ["l2", `搜索 ${point.searches || 0}`, tipY + 55],
+      ["l3", `详情浏览 ${point.views || 0}`, tipY + 72],
+      ["l4", `访客 ${point.visitors || 0}`, tipY + 89]
+    ];
+    lines.forEach(([key, text, ty]) => {
+      const node = tipText[key];
+      if (!node) return;
+      node.setAttribute("x", textX);
+      node.setAttribute("y", ty);
+      node.textContent = text;
+    });
+
+    cross.style.display = "";
+    tip.style.display = "";
+  }
+
+  function hide() {
+    cross.style.display = "none";
+    tip.style.display = "none";
+  }
+
+  hit.addEventListener("pointermove", show);
+  hit.addEventListener("pointerdown", show);
+  hit.addEventListener("pointerleave", hide);
+  hit.addEventListener("pointercancel", hide);
 }
 
 /* ---------------- feedback ---------------- */
@@ -966,3 +1021,80 @@ if (document.readyState === "loading") {
 } else {
   boot();
 }
+
+/* ---------------- 列表弹框（查看全部 + 分页） ---------------- */
+
+const MODAL_PAGE = 20;
+let listModal = null;
+let listModalState = { key: null, page: 0 };
+
+function ensureListModal() {
+  if (listModal) return listModal;
+  const el = document.createElement("div");
+  el.className = "list-modal";
+  el.hidden = true;
+  el.innerHTML = `<div class="list-modal-backdrop" data-close-list></div>
+    <div class="list-modal-panel" role="dialog" aria-modal="true">
+      <header class="list-modal-head">
+        <h3 class="list-modal-title"></h3>
+        <button type="button" class="list-modal-close" data-close-list aria-label="关闭">${ICONS.close}</button>
+      </header>
+      <div class="list-modal-body"></div>
+      <footer class="list-modal-foot"></footer>
+    </div>`;
+  document.body.appendChild(el);
+  el.addEventListener("click", (event) => {
+    if (event.target.closest("[data-close-list]")) { closeListModal(); return; }
+    if (event.target.closest("[data-list-prev]")) {
+      if (listModalState.page > 0) { listModalState.page -= 1; renderListModal(); }
+      return;
+    }
+    if (event.target.closest("[data-list-next]")) {
+      const list = state.lists[listModalState.key];
+      if (!list) return;
+      const pages = Math.max(1, Math.ceil(list.entries.length / MODAL_PAGE));
+      if (listModalState.page < pages - 1) { listModalState.page += 1; renderListModal(); }
+    }
+  });
+  listModal = el;
+  return el;
+}
+
+function openListModal(key) {
+  if (!state.lists[key]) return;
+  ensureListModal();
+  listModalState = { key, page: 0 };
+  renderListModal();
+}
+
+function closeListModal() {
+  if (!listModal) return;
+  listModal.hidden = true;
+  document.body.classList.remove("modal-open");
+}
+
+function renderListModal() {
+  const list = state.lists[listModalState.key];
+  if (!list || !listModal) return;
+  const total = list.entries.length;
+  const pages = Math.max(1, Math.ceil(total / MODAL_PAGE));
+  const page = Math.max(0, Math.min(pages - 1, listModalState.page));
+  listModalState.page = page;
+  const start = page * MODAL_PAGE;
+  const slice = list.entries.slice(start, start + MODAL_PAGE);
+  listModal.querySelector(".list-modal-title").textContent = `${list.title} · 共 ${total} 条`;
+  listModal.querySelector(".list-modal-body").innerHTML = slice.length
+    ? `<div class="${list.listClass}">${slice.map((entry, index) => list.row(entry, start + index)).join("")}</div>`
+    : `<div class="rank-empty">暂无数据。</div>`;
+  listModal.querySelector(".list-modal-foot").innerHTML = `<span class="list-modal-count">第 ${page + 1} / ${pages} 页 · 共 ${total} 条</span>
+    <div class="list-modal-pager">
+      <button class="btn btn-ghost btn-sm" type="button" data-list-prev${page <= 0 ? " disabled" : ""}>${ICONS.arrowLeft} 上一页</button>
+      <button class="btn btn-ghost btn-sm" type="button" data-list-next${page >= pages - 1 ? " disabled" : ""}>下一页 ${ICONS.arrowRight}</button>
+    </div>`;
+  listModal.hidden = false;
+  document.body.classList.add("modal-open");
+}
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && listModal && !listModal.hidden) closeListModal();
+});

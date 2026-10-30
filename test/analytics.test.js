@@ -86,9 +86,12 @@ test("看板聚合页面信标，并只把执行过脚本的编号算作真实�
   assert.equal(botSource.pages, 0, "这个来源从没打过页面信标");
   assert.equal(botSource.visitors, 2, "同一 IP 被铸成两个编号，正是脚本的典型特征");
 
-  const today = dashboard.trend[dashboard.trend.length - 1];
-  assert.equal(today.pageviews, 3);
-  assert.equal(today.visitors, 2, "趋势里的每日访客同样只算真实访客");
+  // 事件取「1~3 小时前」，跨不跨午夜取决于运行时刻；这里对趋势求和，
+  // 免得在凌晨运行（事件落到昨天）时「最后一天」桶为 0 造成误判。
+  const pageviewTotal = dashboard.trend.reduce((sum, bucket) => sum + bucket.pageviews, 0);
+  assert.equal(pageviewTotal, 3);
+  const visitorTotal = dashboard.trend.reduce((sum, bucket) => sum + bucket.visitors, 0);
+  assert.equal(visitorTotal, 2, "趋势里的每日访客同样只算真实访客");
 
   assert.equal(dashboard.recent.some((entry) => entry.type === "page"), false, "页面信标不混进最近动态");
   assert.equal(dashboard.visitors[0].real, true);

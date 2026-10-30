@@ -1328,3 +1328,31 @@ select {
   .feedback-when { display: none; }
 }
 
+/* 卡片右上角「查看全部」按钮（复用 .panel-link 样式） */
+button.panel-link { background: none; border: 0; padding: 0; cursor: pointer; }
+
+/* 列表弹框（查看全部 + 分页） */
+.list-modal[hidden] { display: none; }
+.list-modal { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 24px; }
+.list-modal-backdrop { position: absolute; inset: 0; background: rgba(11, 34, 38, .52); backdrop-filter: blur(2px); }
+.list-modal-panel {
+  position: relative; width: min(760px, 94vw); max-height: 82vh; display: flex; flex-direction: column;
+  background: var(--cream); color: var(--ink); border: 1px solid var(--line);
+  border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden;
+}
+.list-modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 18px; border-bottom: 1px solid var(--line); }
+.list-modal-title { font-family: var(--serif); font-size: 19px; margin: 0; color: var(--ink); }
+.list-modal-close { display: grid; place-items: center; width: 32px; height: 32px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--muted); cursor: pointer; }
+.list-modal-close:hover { border-color: var(--line-strong); color: var(--ink); }
+.list-modal-close svg { width: 15px; height: 15px; }
+.list-modal-body { padding: 8px 18px; overflow-y: auto; }
+.list-modal-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 18px; border-top: 1px solid var(--line); }
+.list-modal-count { font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+.list-modal-pager { display: flex; gap: 8px; }
+body.modal-open { overflow: hidden; }
+@media (max-width: 640px) {
+  .list-modal { padding: 12px; }
+  .list-modal-panel { max-height: 86vh; }
+  .list-modal-foot { flex-direction: column; align-items: stretch; }
+  .list-modal-pager { justify-content: space-between; }
+}
