@@ -1,0 +1,16 @@
+{
+  "name": "yingtu-admin",
+  "version": "1.0.0",
+  "private": true,
+  "description": "映途管理后台（独立项目）：片库编辑、行为看板与反馈收件箱，零依赖 Node 服务，独立端口运行",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18.16"
+  },
+  "license": "MIT"
+}
