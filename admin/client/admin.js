@@ -1139,7 +1139,7 @@ function adminImageSrc(url) {
   try {
     const parsed = new URL(url, location.origin);
     if (/(^|\.)(doubanio\.com|tmdb\.org)$/i.test(parsed.hostname)) {
-      const base = String((state.mode === "remote" && state.remoteBase) ? state.remoteBase : "").replace(/\/+$/, "");
+      const base = String(state.remoteBase || FRONTEND || "").replace(/\/+$/, "");
       if (base) return `${base}/api/img?src=${encodeURIComponent(parsed.href)}`;
     }
     return url;
