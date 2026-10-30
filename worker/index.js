@@ -388,8 +388,7 @@ async function handleImageProxy(ctx) {
   for (const referer of ["https://movie.douban.com/", "https://www.douban.com/", "https://yinto.top/"]) {
     try {
       const response = await fetch(target.href, {
-        headers: { Referer: referer, Accept: "image/*,*/*" },
-        cf: { cacheEverything: true, cacheTtl: 86400 }
+        headers: { Referer: referer, Accept: "image/*,*/*" }
       });
       if (response.ok && /^image\//i.test(response.headers.get("content-type") || "")) {
         upstream = response;
