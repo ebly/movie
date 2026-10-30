@@ -4,6 +4,7 @@
   "slug": "yingtu",
   "tagline": "影视索引与公开分享搜索",
   "slogan": "查找影视作品与公开分享",
+  "sameAs": ["https://github.com/ebly/movie"],
   "apiName": "yingtu-api",
   "logPrefix": "[yingtu]",
   "cookies": {
