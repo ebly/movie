@@ -92,6 +92,25 @@ export function createAnalytics({ db, providers = PROVIDERS, titleNames = new Ma
     });
   }
 
+  /** 网盘搜索：pid 记网盘类型（quark/baidu/...），offer_index 借用来记结果总数。 */
+  function recordPanSearch({ query, type, total, visitorId }) {
+    return add("pan_search", {
+      q: String(query || ""),
+      pid: String(type || "") || null,
+      offerIndex: Number(total) || 0,
+      visitorId: visitorId || null
+    });
+  }
+
+  /** 页面访问：q 记归一化后的路径，pid 记界面语言（zh/en）。 */
+  function recordPage({ path, lang, visitorId }) {
+    return add("page", {
+      q: String(path || ""),
+      pid: String(lang || "") || null,
+      visitorId: visitorId || null
+    });
+  }
+
   async function dashboard({ days = 30, feedback = [] } = {}) {
     const rangeDays = Math.min(Math.max(Math.round(Number(days) || 30), 1), 365);
     const now = new Date();
@@ -111,10 +130,11 @@ export function createAnalytics({ db, providers = PROVIDERS, titleNames = new Ma
       const at = new Date(row.created_at);
       if (Number.isNaN(at.getTime()) || at > now) return;
       events.push({
-        type: row.kind,
+        // pan_search 与旧版片库 search 合并统计：看板上的「搜索」就是用户真正搜过什么。
+        type: row.kind === "pan_search" ? "search" : row.kind,
         at: row.created_at,
         query: row.q || "",
-        total: row.kind === "search" ? Number(row.offer_index) || 0 : 0,
+        total: row.kind === "search" || row.kind === "pan_search" ? Number(row.offer_index) || 0 : 0,
         titleId: row.title_id || "",
         title: (row.title_id && titleNamesMap.get(row.title_id)) || row.title_id || "",
         providerId: row.pid || "",
@@ -239,6 +259,7 @@ export function createAnalytics({ db, providers = PROVIDERS, titleNames = new Ma
     }));
 
     const recent = current
+      .filter((event) => event.type !== "page")
       .slice()
       .sort((a, b) => String(b.at).localeCompare(String(a.at)))
       .slice(0, 14)
@@ -300,5 +321,5 @@ export function createAnalytics({ db, providers = PROVIDERS, titleNames = new Ma
     };
   }
 
-  return { recordSearch, recordView, recordClick, dashboard };
+  return { recordSearch, recordView, recordClick, recordPanSearch, recordPage, dashboard };
 }

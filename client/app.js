@@ -7,6 +7,8 @@ const app = document.getElementById("app");
 const toastEl = document.getElementById("toast");
 const THEME_KEY = "yingtu-theme";
 
+applyStaticI18n();
+
 let PROVIDERS = {};
 let BOOT = { hot: [], types: [], stats: { providers: 0 }, disclaimer: "" };
 
@@ -75,7 +77,7 @@ function writeFavorites(list) {
   try {
     localStorage.setItem(FAV_KEY, JSON.stringify(list.slice(0, FAV_LIMIT)));
   } catch (err) {
-    showToast("浏览器存储已满，收藏没有保存");
+    showToast(t("toast.storageFull"));
   }
   syncFavoriteButtons();
 }
@@ -99,13 +101,13 @@ function toggleFavorite(item) {
 
 function favButtonHTML(item, extraClass = "") {
   const on = isFavorite(item.id);
-  return `<button class="fav-btn${on ? " on" : ""}${extraClass ? ` ${extraClass}` : ""}" type="button" data-fav="${esc(item.id)}" aria-pressed="${on}" aria-label="${on ? "取消收藏" : "加入收藏"}">${ICON_HEART}</button>`;
+  return `<button class="fav-btn${on ? " on" : ""}${extraClass ? ` ${extraClass}` : ""}" type="button" data-fav="${esc(item.id)}" aria-pressed="${on}" aria-label="${t(on ? "fav.remove" : "fav.add")}">${ICON_HEART}</button>`;
 }
 
 function favWideHTML(item) {
   const on = isFavorite(item.id);
   return `<button class="fav-wide${on ? " on" : ""}" type="button" data-fav="${esc(item.id)}" aria-pressed="${on}">
-    ${ICON_HEART}<span>${on ? "已收藏" : "加入收藏"}</span>
+    ${ICON_HEART}<span>${t(on ? "fav.saved" : "fav.add")}</span>
   </button>`;
 }
 
@@ -116,10 +118,10 @@ function syncFavoriteButtons() {
     const on = ids.has(button.dataset.fav);
     button.classList.toggle("on", on);
     button.setAttribute("aria-pressed", String(on));
-    button.setAttribute("aria-label", on ? "取消收藏" : "加入收藏");
+    button.setAttribute("aria-label", t(on ? "fav.remove" : "fav.add"));
     const label = button.querySelector("span");
     if (label && button.classList.contains("fav-wide")) {
-      label.textContent = on ? "已收藏" : "加入收藏";
+      label.textContent = t(on ? "fav.saved" : "fav.add");
     }
   });
   syncFavBadge();
@@ -127,8 +129,8 @@ function syncFavoriteButtons() {
 
 function favoritesLinkHTML() {
   const count = readFavorites().length + readPanFavs().length;
-  return `<a class="fav-link" href="/list" aria-label="我的收藏">
-    ${ICON_HEART}<span>收藏</span><b data-fav-count${count ? "" : " hidden"}>${count}</b>
+  return `<a class="fav-link" href="/list" aria-label="${t("fav.linkAria")}">
+    ${ICON_HEART}<span>${t("fav.link")}</span><b data-fav-count${count ? "" : " hidden"}>${count}</b>
   </a>`;
 }
 
@@ -151,11 +153,11 @@ async function copyText(text, message) {
       let copied = false;
       try { copied = document.execCommand("copy"); }
       finally { document.body.removeChild(area); }
-      if (!copied) throw new Error("复制未完成");
+      if (!copied) throw new Error(t("toast.copyIncomplete"));
     }
     showToast(message);
   } catch (err) {
-    showToast("复制失败，请手动选择并复制页面上的链接或提取码");
+    showToast(t("toast.copyFailed"));
   }
 }
 
@@ -212,23 +214,23 @@ function showToast(message) {
 /* ---------------- chrome ---------------- */
 
 function brandHTML() {
-  return `<a class="brand" href="/" aria-label="${BRAND.name}首页">
+  return `<a class="brand" href="/" aria-label="${esc(t("brand.homeAria", { name: BRAND.name }))}">
     ${BRAND_MARK}
     <span class="brand-copy">
       <span class="brand-word">${BRAND.name}</span>
-      <span class="brand-note">影视索引与公开分享搜索</span>
+      <span class="brand-note">${t("brand.note")}</span>
     </span>
   </a>`;
 }
 
 function themeButtonHTML() {
-  return `<button class="icon-btn" type="button" data-action="theme" aria-label="切换深浅色">
+  return `<button class="icon-btn" type="button" data-action="theme" aria-label="${t("action.theme")}">
     ${ICON_SUN}${ICON_MOON}
   </button>`;
 }
 
 function feedbackButtonHTML() {
-  return `<button class="quiet-btn" type="button" data-action="feedback">留句话</button>`;
+  return `<button class="quiet-btn" type="button" data-action="feedback">${t("action.feedback")}</button>`;
 }
 
 function searchURL(query, type = "quark", page = 1) {
@@ -240,12 +242,12 @@ function searchURL(query, type = "quark", page = 1) {
 }
 
 function searchFormHTML(query = "") {
-  const label = "搜索网盘公开分享关键词";
+  const label = t("search.label");
   return `<div class="search-box" data-search-box>
     <form class="search-field" data-search data-source="quark" role="search" aria-label="${label}">
       ${ICON_SEARCH}
       <input type="text" name="q" value="${esc(query)}" placeholder="${label}…" autocomplete="off" spellcheck="false" required data-search-input aria-label="${label}">
-      <button class="search-submit" type="submit" ${String(query || "").trim() ? "" : "disabled"}>搜索</button>
+      <button class="search-submit" type="submit" ${String(query || "").trim() ? "" : "disabled"}>${t("search.submit")}</button>
     </form>
     <div class="search-suggest" data-suggest hidden></div>
   </div>`;
@@ -339,7 +341,7 @@ async function requestSuggest(input) {
       </button>`).join("");
     list.innerHTML = `${rows}
       <button type="button" class="suggest-item suggest-web" data-suggest-web>
-        <span class="suggest-title">在网盘搜「${esc(q)}」</span>
+        <span class="suggest-title">${esc(t("search.suggestWeb", { q }))}</span>
         <span class="suggest-meta">Enter ↵</span>
       </button>`;
     list.hidden = false;
@@ -368,16 +370,18 @@ function headerHTML({ compact = false, query = "" } = {}) {
         ${favoritesLinkHTML()}
         ${themeButtonHTML()}
         ${feedbackButtonHTML()}
+        ${langSwitchHTML()}
       </div>
     </header>`;
   }
   return `<header class="sub-head">
-    <button class="back-btn" type="button" data-action="back" aria-label="返回">${ICON_BACK}</button>
+    <button class="back-btn" type="button" data-action="back" aria-label="${t("action.back")}">${ICON_BACK}</button>
     <div class="head-search">${searchFormHTML(query)}</div>
     <div class="head-actions compact">
       ${favoritesLinkHTML()}
       ${themeButtonHTML()}
       ${feedbackButtonHTML()}
+      ${langSwitchHTML()}
     </div>
   </header>`;
 }
@@ -385,7 +389,7 @@ function headerHTML({ compact = false, query = "" } = {}) {
 function footerHTML() {
   return `<footer class="site-foot"><div class="foot-inner">
     <span class="foot-brand">${BRAND_MARK}${BRAND.name}</span>
-    <span>影视索引与公开分享搜索 · 不存储任何影片或网盘文件</span>
+    <span>${t("foot.tagline")}</span>
   </div></footer>`;
 }
 
@@ -521,7 +525,7 @@ function motifSVG(art) {
 /** 外部海报直链（后台可填）。图片盖在程序化海报之上，加载失败由全局 error 监听回退到生成的封面。 */
 function posterImgHTML(item) {
   if (!item.poster) return "";
-  return `<img class="poster-img" src="${esc(item.poster)}" alt="《${esc(item.title)}》海报" loading="lazy" decoding="async">`;
+  return `<img class="poster-img" src="${esc(item.poster)}" alt="${esc(t("poster.alt", { title: item.title }))}" loading="lazy" decoding="async">`;
 }
 
 function posterHTML(item) {
@@ -535,7 +539,7 @@ function posterHTML(item) {
     <div class="poster-copy">
       <span class="poster-kicker">${BRAND.name}</span>
       <h3 class="poster-title">${esc(shortTitle(item))}</h3>
-      <p class="poster-meta">${item.year} · ${esc(item.type)}</p>
+      <p class="poster-meta">${item.year} · ${esc(enumText(item.type))}</p>
       <span class="poster-line"></span>
     </div>
   </div>`;
@@ -559,27 +563,48 @@ function setRouteBusy(on) {
   document.body.classList.toggle("is-routing", Boolean(on));
 }
 
+const ERROR_TEXT = {
+  rate_limited: "err.rateLimited",
+  busy: "err.busy",
+  pansou_busy: "err.busy",
+  pansou_rate_limited: "err.rateLimited",
+  query_required: "err.queryRequired",
+  invalid_query: "err.invalidQuery",
+  pansou_unconfigured: "err.panUnconfigured",
+  pansou_config: "err.panUnconfigured",
+  pansou_timeout: "err.panTimeout",
+  pansou_unreachable: "err.panUnreachable",
+  pansou_auth: "err.panAuth",
+  pansou_format: "err.panFormat",
+  pansou_error: "err.panFormat",
+  pansou_http: "err.panFormat",
+  pansou_too_large: "err.panTooLarge"
+};
+
 function friendlyError(err) {
-  if (err && err.name === "TypeError") {
-    return "连接不到服务端。请确认已在项目目录运行 npm start（或 npx wrangler dev），然后访问对应地址。";
-  }
-  return (err && err.message) || "请稍后重试。";
+  if (err && err.name === "TypeError") return t("err.network");
+  const key = err && err.code ? ERROR_TEXT[err.code] : "";
+  if (key) return t(key);
+  const message = (err && err.message) || "";
+  // 服务端可能只返回中文提示；英文界面下宁可给通用文案，也不混排中文。
+  if (getLang() === "en" && /[\u4e00-\u9fa5]/.test(message)) return t("err.generic");
+  return message || t("err.generic");
 }
 
 function renderLoadError(err, retry) {
   state.retry = retry;
   setRouteBusy(false);
-  document.title = `加载失败 — ${BRAND.name}`;
+  document.title = t("err.loadTitle", { name: BRAND.name });
   app.innerHTML = `<div class="view">
     ${headerHTML({ compact: true, query: state.lastQuery })}
     <main class="magazine-page">
       <div class="empty">
         ${ICON_EMPTY}
-        <h3>没有连上服务端</h3>
+        <h3>${t("err.loadHead")}</h3>
         <p>${esc(friendlyError(err))}</p>
         <div class="chips">
-          <button class="chip" type="button" data-retry>重试</button>
-          <a class="chip" href="/">回到首页</a>
+          <button class="chip" type="button" data-retry>${t("action.retry")}</button>
+          <a class="chip" href="/">${t("action.home")}</a>
         </div>
       </div>
     </main>
@@ -590,15 +615,15 @@ function renderLoadError(err, retry) {
 
 function renderBootError(err) {
   state.retry = init;
-  document.title = `${BRAND.name} — 启动失败`;
+  document.title = t("err.bootTitle", { name: BRAND.name });
   app.innerHTML = `<div class="view">
     ${headerHTML()}
     <main class="home-main">
       <div class="empty">
         ${ICON_EMPTY}
-        <h3>服务端还没有启动</h3>
+        <h3>${t("err.bootHead")}</h3>
         <p>${esc(friendlyError(err))}</p>
-        <div class="chips"><button class="chip" type="button" data-retry>重试</button></div>
+        <div class="chips"><button class="chip" type="button" data-retry>${t("action.retry")}</button></div>
       </div>
     </main>
     ${footerHTML()}
@@ -622,7 +647,7 @@ function leadCardHTML(item) {
       <div class="poster-copy">
         <span class="poster-kicker">${BRAND.name}</span>
         <h3 class="poster-title">${esc(item.title)}</h3>
-        <p class="poster-meta">${rating}${year}${esc(item.type)}${genres ? ` <span class="poster-genres">· ${esc(genres)}</span>` : ""}</p>
+        <p class="poster-meta">${rating}${year}${esc(enumText(item.type))}${genres ? ` <span class="poster-genres">· ${esc(genres)}</span>` : ""}</p>
         <span class="poster-line"></span>
       </div>
     </div>
@@ -640,7 +665,7 @@ function miniCardHTML(item) {
     </div>
     <div class="mini-body">
       <h4 class="mini-title">${esc(item.title)}</h4>
-      <p class="mini-meta">${item.year ? `${item.year} · ` : ""}${esc(item.type)}${rating}</p>
+      <p class="mini-meta">${item.year ? `${item.year} · ` : ""}${esc(enumText(item.type))}${rating}</p>
     </div>
   </a>`;
 }
@@ -730,9 +755,9 @@ function applyHotChips(items) {
   // 最后一张和箭头绑成一组，换行时不会出现「箭头孤零零一行」
   const head = needsMore ? first.slice(0, -1) : first;
   const tail = needsMore
-    ? `<span class="hot-tail">${hotChipHTML(first[first.length - 1])}<button class="hot-more" type="button" data-hot-more aria-label="展开更多热门搜索" title="展开更多">↓</button></span>`
+    ? `<span class="hot-tail">${hotChipHTML(first[first.length - 1])}<button class="hot-more" type="button" data-hot-more aria-label="${t("home.hotMoreAria")}" title="${t("home.hotMore")}">↓</button></span>`
     : "";
-  box.innerHTML = `<span class="hot-label">大家都在搜</span>${head.map(hotChipHTML).join("")}${tail}`;
+  box.innerHTML = `<span class="hot-label">${t("home.hot")}</span>${head.map(hotChipHTML).join("")}${tail}`;
   box.hidden = false;
 }
 
@@ -808,23 +833,23 @@ async function loadHotChips() {
 
 function renderHome() {
   setRouteBusy(false);
-  document.title = `${BRAND.name} — ${BRAND.slogan}`;
+  document.title = t("home.docTitle", { name: BRAND.name });
 
   app.innerHTML = `<div class="home view">
     ${headerHTML()}
     <main class="home-main">
       <section class="hero-grid solo">
         <div class="hero-copy">
-          <h1 class="display-title animate d1">想看什么？<span class="hero-accent">直接搜</span></h1>
+          <h1 class="display-title animate d1">${t("home.lead")}<span class="hero-accent">${t("home.accent")}</span></h1>
           <div class="hero-search animate d2">${searchFormHTML("")}</div>
           <div class="hot animate d3" id="home-hot" hidden></div>
         </div>
-        <aside class="home-featured animate d4" aria-label="最新电影" hidden>
+        <aside class="home-featured animate d4" aria-label="${t("home.featuredAria")}" hidden>
           <div id="feature-body"></div>
         </aside>
       </section>
     </main>
-    <div class="home-foot">${BRAND.name} · 影视条目与网盘公开分享搜索，不存储任何影片或网盘文件</div>
+    <div class="home-foot">${t("home.foot", { name: BRAND.name })}</div>
   </div>`;
   updateScrollState();
   loadLatestList();
@@ -834,12 +859,7 @@ function renderHome() {
 /* ---------------- 网盘公开分享搜索（PanSou：夸克 / 百度 / 迅雷 / 阿里） ---------------- */
 
 const PAN_LIMIT = 30;
-const PAN_TYPES = [
-  { id: "quark", label: "夸克" },
-  { id: "baidu", label: "百度" },
-  { id: "xunlei", label: "迅雷" },
-  { id: "aliyun", label: "阿里" }
-];
+const PAN_TYPES = [{ id: "quark" }, { id: "baidu" }, { id: "xunlei" }, { id: "aliyun" }];
 const PAN_TYPE_MAP = new Map(PAN_TYPES.map((item) => [item.id, item]));
 const PAN_URL_RULES = {
   quark: /^https:\/\/pan\.quark\.cn\/s\/[a-zA-Z0-9]+$/,
@@ -854,8 +874,7 @@ function panTypeOf(params) {
 }
 
 function panTypeLabel(type) {
-  const item = PAN_TYPE_MAP.get(type);
-  return item ? item.label : "网盘";
+  return PAN_TYPE_MAP.has(type) ? t(`pan.${type}`) : t("pan.type");
 }
 
 /* ---------------- 网盘分享收藏（localStorage，键与影视片单分开） ---------------- */
@@ -879,7 +898,7 @@ function panFavRecord(item) {
   return {
     id: item.id,
     type,
-    title: item.title || "未命名公开分享",
+    title: item.title || "",
     url: item.url,
     password: item.password || "",
     sources: Array.isArray(item.sources) ? item.sources.slice(0, 8) : [],
@@ -892,7 +911,7 @@ function writePanFavs(list) {
   try {
     localStorage.setItem(PAN_FAV_KEY, JSON.stringify(list.slice(0, FAV_LIMIT)));
   } catch (err) {
-    showToast("浏览器存储已满，收藏没有保存");
+    showToast(t("toast.storageFull"));
   }
   syncPanFavButtons();
 }
@@ -916,7 +935,7 @@ function togglePanFav(item) {
 
 function panFavButtonHTML(item) {
   const on = isPanFav(item.id);
-  return `<button class="fav-btn${on ? " on" : ""}" type="button" data-pan-fav="${esc(item.id)}" aria-pressed="${on}" aria-label="${on ? "取消收藏" : "收藏这条分享"}">${ICON_HEART}</button>`;
+  return `<button class="fav-btn${on ? " on" : ""}" type="button" data-pan-fav="${esc(item.id)}" aria-pressed="${on}" aria-label="${t(on ? "fav.remove" : "fav.panAdd")}">${ICON_HEART}</button>`;
 }
 
 function syncPanFavButtons() {
@@ -925,7 +944,7 @@ function syncPanFavButtons() {
     const on = ids.has(button.dataset.panFav);
     button.classList.toggle("on", on);
     button.setAttribute("aria-pressed", String(on));
-    button.setAttribute("aria-label", on ? "取消收藏" : "收藏这条分享");
+    button.setAttribute("aria-label", t(on ? "fav.remove" : "fav.panAdd"));
   });
   syncFavBadge();
 }
@@ -958,10 +977,10 @@ function panPage(params) {
 }
 
 function panTabsHTML(q, type) {
-  return `<nav class="pan-tabs" role="tablist" aria-label="按网盘类型筛选">
+  return `<nav class="pan-tabs" role="tablist" aria-label="${t("pan.tabsAria")}">
     ${PAN_TYPES.map((item) => {
       const on = item.id === type;
-      return `<a class="pan-tab${on ? " on" : ""}" role="tab" aria-selected="${on}" href="${esc(searchURL(q, item.id))}">${esc(item.label)}</a>`;
+      return `<a class="pan-tab${on ? " on" : ""}" role="tab" aria-selected="${on}" href="${esc(searchURL(q, item.id))}">${esc(panTypeLabel(item.id))}</a>`;
     }).join("")}
   </nav>`;
 }
@@ -974,24 +993,24 @@ function panCardHTML(item, currentType) {
   const sources = Array.isArray(item.sources) ? item.sources.filter((source) => typeof source === "string") : [];
   const date = typeof item.datetime === "string" ? new Date(item.datetime) : null;
   const time = date && Number.isFinite(date.getTime())
-    ? `<time datetime="${esc(item.datetime)}" title="${esc(item.datetime)}">${esc(date.toLocaleString("zh-CN", { hour12: false }))}（本地时间）</time>`
-    : "未提供时间";
+    ? `<time datetime="${esc(item.datetime)}" title="${esc(item.datetime)}">${esc(t("pan.localTime", { time: date.toLocaleString(langTag(), { hour12: false }) }))}</time>`
+    : t("pan.noTime");
   return `<article class="pan-card">
     ${panFavButtonHTML(item)}
     <div class="pan-card-head">
-      <h3>${esc(item.title || "未提供标题")}</h3>
+      <h3>${esc(item.title || t("pan.noTitle"))}</h3>
     </div>
     <div class="pan-meta">
-      <span>来源：${sources.length ? sources.map((source) => `<span class="pan-source">${esc(source)}</span>`).join(" ") : "未提供来源"}</span>
-      <span>来源时间：${time}</span>
+      <span>${t("pan.source")}${sources.length ? sources.map((source) => `<span class="pan-source">${esc(source)}</span>`).join(" ") : t("pan.noSource")}</span>
+      <span>${t("pan.sourceTime")}${time}</span>
     </div>
-    <p class="pan-url">${url ? esc(url) : "链接格式不符合要求，已禁用打开与复制"}</p>
-    <p class="pan-password">提取码：${password ? `<code>${esc(password)}</code>` : "未提供"}</p>
+    <p class="pan-url">${url ? esc(url) : t("pan.badUrl")}</p>
+    <p class="pan-password">${t("pan.code")}${password ? `<code>${esc(password)}</code>` : t("pan.noCode")}</p>
     <div class="pan-actions">
-      ${url ? `<a class="chip" href="${esc(url)}" target="_blank" rel="noopener noreferrer nofollow">打开分享 ↗</a>
-        <button class="quiet-btn" type="button" data-pan-copy="link" data-pan-url="${esc(url)}">复制链接</button>
-        ${password ? `<button class="quiet-btn" type="button" data-pan-copy="password" data-pan-url="${esc(url)}" data-pan-password="${esc(password)}">复制提取码</button>` : ""}`
-        : `<span class="pan-invalid">链接与该网盘类型不匹配，已禁用打开与复制</span>`}
+      ${url ? `<a class="chip" href="${esc(url)}" target="_blank" rel="noopener noreferrer nofollow">${t("pan.open")}</a>
+        <button class="quiet-btn" type="button" data-pan-copy="link" data-pan-url="${esc(url)}">${t("pan.copyLink")}</button>
+        ${password ? `<button class="quiet-btn" type="button" data-pan-copy="password" data-pan-url="${esc(url)}" data-pan-password="${esc(password)}">${t("pan.copyCode")}</button>` : ""}`
+        : `<span class="pan-invalid">${t("pan.urlMismatch")}</span>`}
     </div>
   </article>`;
 }
@@ -1002,15 +1021,15 @@ function panFavCardHTML(entry) {
   const password = typeof entry.password === "string" ? entry.password : "";
   return `<article class="pan-card pan-fav-card">
     <div class="pan-card-head">
-      <h3>${esc(entry.title || "未命名公开分享")}</h3>
+      <h3>${esc(entry.title || t("pan.unnamed"))}</h3>
     </div>
-    <p class="pan-url">${url ? esc(url) : "链接格式不符合要求，已禁用打开与复制"}</p>
-    <p class="pan-password">提取码：${password ? `<code>${esc(password)}</code>` : "未提供"}</p>
+    <p class="pan-url">${url ? esc(url) : t("pan.badUrl")}</p>
+    <p class="pan-password">${t("pan.code")}${password ? `<code>${esc(password)}</code>` : t("pan.noCode")}</p>
     <div class="pan-actions">
-      ${url ? `<a class="chip" href="${esc(url)}" target="_blank" rel="noopener noreferrer nofollow">打开分享 ↗</a>
-        <button class="quiet-btn" type="button" data-pan-copy="link" data-pan-url="${esc(url)}">复制链接</button>` : ""}
-      ${password ? `<button class="quiet-btn" type="button" data-pan-copy="password" data-pan-url="${esc(url)}" data-pan-password="${esc(password)}">复制提取码</button>` : ""}
-      <button class="quiet-btn" type="button" data-pan-unfav="${esc(entry.id)}">取消收藏</button>
+      ${url ? `<a class="chip" href="${esc(url)}" target="_blank" rel="noopener noreferrer nofollow">${t("pan.open")}</a>
+        <button class="quiet-btn" type="button" data-pan-copy="link" data-pan-url="${esc(url)}">${t("pan.copyLink")}</button>` : ""}
+      ${password ? `<button class="quiet-btn" type="button" data-pan-copy="password" data-pan-url="${esc(url)}" data-pan-password="${esc(password)}">${t("pan.copyCode")}</button>` : ""}
+      <button class="quiet-btn" type="button" data-pan-unfav="${esc(entry.id)}">${t("fav.remove")}</button>
     </div>
   </article>`;
 }
@@ -1025,20 +1044,20 @@ function panPaginationHTML(q, type, data) {  const page = Math.floor(data.offset
     const gap = previous && value - previous > 1 ? `<span class="pan-page-gap" aria-hidden="true">…</span>` : "";
     previous = value;
     return gap + (value === page
-      ? `<span class="pan-page-link on" aria-current="page" aria-label="第 ${page} 页">${page}</span>`
+      ? `<span class="pan-page-link on" aria-current="page" aria-label="${t("pan.pageAria", { page })}">${page}</span>`
       : link(value, String(value)));
   }).join("");
-  return `<nav class="pan-pagination" aria-label="网盘搜索结果分页">
+  return `<nav class="pan-pagination" aria-label="${t("pan.paginationAria")}">
     <div class="pan-page-links">
-      ${page > 1 ? link(page - 1, "上一页") : `<span class="pan-page-link disabled" aria-disabled="true">上一页</span>`}
+      ${page > 1 ? link(page - 1, t("pan.prev")) : `<span class="pan-page-link disabled" aria-disabled="true">${t("pan.prev")}</span>`}
       ${numbered}
-      ${data.hasMore ? link(page + 1, "下一页") : `<span class="pan-page-link disabled" aria-disabled="true">下一页</span>`}
+      ${data.hasMore ? link(page + 1, t("pan.next")) : `<span class="pan-page-link disabled" aria-disabled="true">${t("pan.next")}</span>`}
     </div>
     <form class="pan-page-jump" data-pan-page-form data-pan-query="${esc(q)}" data-pan-type="${esc(type)}">
-      <label>第 <input type="number" name="page" value="${page}" min="1" max="${pages}" step="1" required aria-label="跳转页码"> / ${pages} 页</label>
-      <button class="quiet-btn" type="submit">跳转</button>
+      <label>${t("pan.jumpPrefix")} <input type="number" name="page" value="${page}" min="1" max="${pages}" step="1" required aria-label="${t("pan.pageAria", { page })}"> ${esc(t("pan.jumpSuffix", { pages }))}</label>
+      <button class="quiet-btn" type="submit">${t("pan.jumpGo")}</button>
     </form>
-    <p>每页 ${data.limit} 条 · 页数按当前已返回的结果计算，不代表全部公开来源。</p>
+    <p>${esc(t("pan.pageNote", { limit: data.limit }))}</p>
   </nav>`;
 }
 
@@ -1049,8 +1068,8 @@ function panViewHTML(q, type, body, { loading = false } = {}) {
     <main class="magazine-page pan-page">
       ${panTabsHTML(q, type)}
       <div class="pan-toolbar">
-        <button class="quiet-btn" type="button" data-pan-reload${!q || loading || cooling ? " disabled" : ""}>重新获取</button>
-        <span>手动跳过本站短缓存，不刷新上游；不会自动重试或轮询。</span>
+        <button class="quiet-btn" type="button" data-pan-reload${!q || loading || cooling ? " disabled" : ""}>${t("pan.reload")}</button>
+        <span>${t("pan.reloadNote")}</span>
       </div>
       ${body}
     </main>
@@ -1068,18 +1087,20 @@ async function renderPanResults(params, { reload = false } = {}) {
   const type = panTypeOf(params);
   const page = panPage(params);
   if (q) state.lastQuery = q;
-  document.title = `${q ? `${q} — ` : ""}网盘资源 — ${BRAND.name}`;
+  document.title = q
+    ? t("pan.docTitleQ", { q, name: BRAND.name })
+    : t("pan.docTitle", { name: BRAND.name });
 
   if (!q) {
     setRouteBusy(false);
-    app.innerHTML = panViewHTML(q, type, `<div class="empty" role="status">${ICON_EMPTY}<h3>请输入搜索关键词</h3><p>输入名称或其他关键词，再点击搜索。</p></div>`);
+    app.innerHTML = panViewHTML(q, type, `<div class="empty" role="status">${ICON_EMPTY}<h3>${t("pan.emptyQueryHead")}</h3><p>${t("pan.emptyQueryBody")}</p></div>`);
     updateScrollState();
     return;
   }
   setRouteBusy(true);
   app.innerHTML = panViewHTML(q, type, `<div class="empty" role="status">
     <div class="soft-loader" aria-hidden="true"><i></i><i></i><i></i></div>
-    <h3>${reload ? "正在重新获取公开分享…" : "正在搜索公开分享…"}</h3>
+    <h3>${reload ? t("pan.reloading") : t("pan.searching")}</h3>
   </div>`, { loading: true });
   updateScrollState();
 
@@ -1092,11 +1113,11 @@ async function renderPanResults(params, { reload = false } = {}) {
     state.retry = () => renderPanResults(params);
     const status = err.status ? `HTTP ${err.status}${err.code ? ` · ${err.code}` : ""}` : "";
     app.innerHTML = panViewHTML(q, type, `<div class="empty" role="alert">
-      ${ICON_EMPTY}<h3>搜索暂未成功</h3>
+      ${ICON_EMPTY}<h3>${t("pan.errorHead")}</h3>
       <p>${esc(friendlyError(err))}</p>
       ${status ? `<p class="pan-error-code">${esc(status)}</p>` : ""}
-      <div class="chips"><button class="chip" type="button" data-retry>重试本页</button>
-        ${page > 1 ? `<a class="chip" href="${esc(searchURL(q, type, page - 1))}">返回上一页</a>` : ""}
+      <div class="chips"><button class="chip" type="button" data-retry>${t("pan.retryPage")}</button>
+        ${page > 1 ? `<a class="chip" href="${esc(searchURL(q, type, page - 1))}">${t("pan.backPrev")}</a>` : ""}
       </div>
     </div>`);
     updateScrollState();
@@ -1107,14 +1128,18 @@ async function renderPanResults(params, { reload = false } = {}) {
   const items = data.items;
   // 收藏按钮只拿到 id，点的时候从这里取完整记录
   items.forEach((item) => item.id && state.panById.set(item.id, item));
-  const summary = [`${panTypeLabel(type)}结果总数 ${data.total} 条`, `本页 ${items.length} 条`, data.cached ? "本站缓存命中" : "未命中本站缓存"];
-  if (Number.isFinite(data.tookMs)) summary.push(`请求耗时 ${data.tookMs} ms`);
-  summary.push(data.complete === true ? "上游报告来源已完成（未验证内容）" : "上游未提供完成标记，结果可能不完整");
+  const summary = [
+    t("pan.sumTotal", { type: panTypeLabel(type), total: data.total }),
+    t("pan.sumPage", { n: items.length }),
+    data.cached ? t("pan.sumCached") : t("pan.sumUncached")
+  ];
+  if (Number.isFinite(data.tookMs)) summary.push(t("pan.sumTook", { ms: data.tookMs }));
+  summary.push(data.complete === true ? t("pan.sumComplete") : t("pan.sumPartial"));
   const body = `<div class="pan-summary" role="status">${esc(summary.join(" · "))}</div>
     ${items.length ? `<div class="pan-results">${items.map((item) => panCardHTML(item, type)).join("")}</div>`
-      : `<div class="empty" role="status">${ICON_EMPTY}<h3>${page > 1 ? "当前页没有结果" : `暂未找到${esc(panTypeLabel(type))}公开分享`}</h3>
-        <p>${data.complete === true ? "可换关键词或切换上面的网盘类型，也可以手动重新获取。" : "尚不能断定所有来源都没有结果；可换关键词、切换类型，或手动重新获取。"}</p>
-        ${page > 1 ? `<div class="chips"><a class="chip" href="${esc(searchURL(q, type))}">返回第一页</a></div>` : ""}
+      : `<div class="empty" role="status">${ICON_EMPTY}<h3>${page > 1 ? t("pan.noPageResults") : esc(t("pan.noTypeResults", { type: panTypeLabel(type) }))}</h3>
+        <p>${data.complete === true ? t("pan.emptyHintDone") : t("pan.emptyHintOpen")}</p>
+        ${page > 1 ? `<div class="chips"><a class="chip" href="${esc(searchURL(q, type))}">${t("pan.backFirst")}</a></div>` : ""}
         ${page === 1 ? emptyFallbackHTML() : ""}
       </div>`}
     ${panPaginationHTML(q, type, data)}`;
@@ -1131,14 +1156,14 @@ function emptyFallbackHTML() {
     .slice(0, 5);
   if (pool.length) {
     return `<div class="empty-fallback">
-      <span class="empty-fallback-label">不如试试站内评分最高的</span>
+      <span class="empty-fallback-label">${t("fallback.top")}</span>
       <div class="chips">${pool.map((item) => `<a class="chip" href="/title/${encodeURIComponent(item.id)}">${esc(item.title)}</a>`).join("")}</div>
     </div>`;
   }
   const hot = (BOOT.hot || []).filter((item) => item && item.title).slice(0, 5);
   if (hot.length) {
     return `<div class="empty-fallback">
-      <span class="empty-fallback-label">大家都在搜</span>
+      <span class="empty-fallback-label">${t("fallback.hot")}</span>
       <div class="chips">${hot.map((item) => `<a class="chip" href="${esc(searchURL(item.title))}">${esc(item.title)}</a>`).join("")}</div>
     </div>`;
   }
@@ -1148,13 +1173,13 @@ function emptyFallbackHTML() {
 function loadingHTML() {
   return `<div class="loading">
     <div class="soft-loader" aria-hidden="true"><i></i><i></i><i></i></div>
-    <h2>正在为你整理观看渠道…</h2>
-    <p class="sub">通常几秒 · 正好去倒杯水</p>
+    <h2>${t("detail.loadHead")}</h2>
+    <p class="sub">${t("detail.loadSub")}</p>
     <ul class="checklist" aria-hidden="true">
-      <li><span class="mark"><span>✓</span></span>匹配作品元数据</li>
-      <li><span class="mark"><span>✓</span></span>核对正版渠道</li>
-      <li><span class="mark"><span>✓</span></span>比价与画质</li>
-      <li><span class="mark"><span>✓</span></span>校验片源可用性</li>
+      <li><span class="mark"><span>✓</span></span>${t("detail.step1")}</li>
+      <li><span class="mark"><span>✓</span></span>${t("detail.step2")}</li>
+      <li><span class="mark"><span>✓</span></span>${t("detail.step3")}</li>
+      <li><span class="mark"><span>✓</span></span>${t("detail.step4")}</li>
     </ul>
   </div>`;
 }
@@ -1175,7 +1200,8 @@ function filterChipHTML(item, key, value, label) {
     }).length;
     count = `<span class="n">${n}</span>`;
   }
-  return `<button class="fchip sm ${active ? "on" : ""}" type="button" data-fgroup="${key}" data-value="${esc(value)}" aria-pressed="${active}">${esc(label || value)}${count}</button>`;
+  const text = label || (value === "全部" ? t("filter.all") : enumText(value));
+  return `<button class="fchip sm ${active ? "on" : ""}" type="button" data-fgroup="${key}" data-value="${esc(value)}" aria-pressed="${active}">${esc(text)}${count}</button>`;
 }
 
 function filterLineHTML(item, label, key, values) {
@@ -1192,40 +1218,40 @@ function filtersHTML(item) {
   const qualities = ["4K", "1080P", "HDR"].filter((quality) => item.offers.some((offerItem) => offerItem.quality.includes(quality)));
 
   let rows = "";
-  if (seasons.length > 1) rows += filterLineHTML(item, "季", "season", ["全部", ...seasons]);
-  rows += filterLineHTML(item, "地区", "region", ["全部", ...regions]);
-  rows += filterLineHTML(item, "方式", "tier", ["全部", ...tiers]);
-  if (qualities.length) rows += filterLineHTML(item, "画质", "quality", ["全部", ...qualities]);
+  if (seasons.length > 1) rows += filterLineHTML(item, t("filter.season"), "season", ["全部", ...seasons]);
+  rows += filterLineHTML(item, t("filter.region"), "region", ["全部", ...regions]);
+  rows += filterLineHTML(item, t("filter.tier"), "tier", ["全部", ...tiers]);
+  if (qualities.length) rows += filterLineHTML(item, t("filter.quality"), "quality", ["全部", ...qualities]);
   return `<div class="offer-filters">${rows}</div>`;
 }
 
 function detailHTML(item, related = []) {
   const verified = item.offers.filter((offerItem) => offerItem.verified).length;
-  const length = item.seasons ? `${item.seasons} 季` : item.runtime;
+  const length = item.seasons ? t("detail.seasonN", { n: item.seasons }) : item.runtime;
 
   return `<div class="detail-page">
     <section class="detail-hero">
       <div class="dh-poster">${posterHTML(item)}</div>
       <div class="dh-main">
-        <p class="dh-kicker">${esc(item.type)} · ${item.year}</p>
+        <p class="dh-kicker">${esc(enumText(item.type))} · ${item.year}</p>
         <div class="dh-head"><h1>${esc(item.title)}</h1></div>
         <p class="dh-original">${esc(item.original)}</p>
         <div class="dh-meta">
           <span class="rating"><span class="star">★</span>${item.rating.toFixed(1)}</span>
           <span class="divider"></span>
           <span>${item.year}</span>
-          <span>${esc(item.type)}</span>
+          <span>${esc(enumText(item.type))}</span>
           ${length ? `<span>${esc(length)}</span>` : ""}
         </div>
         <div class="dh-actions">
           ${favWideHTML(item)}
-          <button class="quiet-btn" type="button" data-share="${esc(item.id)}">分享</button>
+          <button class="quiet-btn" type="button" data-share="${esc(item.id)}">${t("detail.share")}</button>
         </div>
         <div class="external-links">
           <a href="https://search.douban.com/movie/subject_search?search_text=${encodeURIComponent(item.title)}" target="_blank" rel="noopener noreferrer nofollow">豆瓣</a>
           <a href="https://www.imdb.com/find/?q=${encodeURIComponent(item.original)}" target="_blank" rel="noopener noreferrer nofollow">IMDb</a>
           <a href="https://www.themoviedb.org/search?query=${encodeURIComponent(item.original)}" target="_blank" rel="noopener noreferrer nofollow">TMDB</a>
-          <a href="${esc(searchURL(item.title))}">搜索网盘公开分享 →</a>
+          <a href="${esc(searchURL(item.title))}">${t("detail.panSearch")}</a>
         </div>
         <p class="dh-synopsis">${esc(item.synopsis)}</p>
         <div class="tags">${item.genres.map((genre) => `<span class="tag">${esc(genre)}</span>`).join("")}</div>
@@ -1237,32 +1263,32 @@ function detailHTML(item, related = []) {
         <section class="content-section">
           <div class="section-head">
             <div>
-              <h2>观看渠道</h2>
-              <p class="sub">共 <b>${item.offers.length}</b> 个<span class="sep">·</span><b class="alive">${verified}</b> 个已验证可看</p>
+              <h2>${t("detail.channels")}</h2>
+              <p class="sub">${t("detail.channelsSub", { total: item.offers.length, verified })}</p>
             </div>
             <label class="switch">
               <input type="checkbox" id="only-verified">
               <span class="track"><span class="thumb"></span></span>
-              <span>仅显示可看</span>
+              <span>${t("detail.onlyVerified")}</span>
             </label>
           </div>
           ${filtersHTML(item)}
           <div id="offer-groups"></div>
-          <p class="offer-note">价格为演示数据，跳转后以平台实际页面为准。${BRAND.name}不存储任何影片，只负责把正版入口找齐。</p>
+          <p class="offer-note">${t("detail.priceNote", { name: BRAND.name })}</p>
         </section>
 
         ${related.length ? `<section class="section">
           <div class="section-head">
             <div>
-              <h2>相似作品</h2>
-              <p class="sub">根据类型与题材推荐</p>
+              <h2>${t("detail.related")}</h2>
+              <p class="sub">${t("detail.relatedSub")}</p>
             </div>
           </div>
           <div class="similar-grid">
             ${related.map((candidate) => `<a class="sim-card" href="/title/${encodeURIComponent(candidate.id)}">
               ${posterHTML(candidate)}
               <p class="sim-title">${esc(candidate.title)}</p>
-              <p class="sim-meta">${candidate.year} · ${esc(candidate.type)}</p>
+              <p class="sim-meta">${candidate.year} · ${esc(enumText(candidate.type))}</p>
             </a>`).join("")}
           </div>
         </section>` : ""}
@@ -1278,20 +1304,20 @@ function offerHTML(offerItem, item) {
     color: "#6b7280",
     fg: "#fff"
   };
-  const season = offerItem.season ? `第 ${parseInt(offerItem.season.slice(1), 10)} 季` : "";
+  const season = offerItem.season ? t("detail.seasonN", { n: parseInt(offerItem.season.slice(1), 10) }) : "";
   return `<a class="offer" href="${esc(offerItem.clickUrl || providerURL(offerItem, item))}" target="_blank" rel="noopener noreferrer nofollow">
     <span class="provider-logo" style="--pc:${provider.color};--pf:${provider.fg}">${esc(provider.short)}</span>
     <span class="offer-main">
-      <span class="offer-title">${esc(provider.name)}<span class="sep">·</span><span class="tier">${esc(offerItem.tier)}</span>
-        ${offerItem.quality.map((quality) => `<span class="badge">${esc(quality)}</span>`).join("")}
+      <span class="offer-title">${esc(provider.name)}<span class="sep">·</span><span class="tier">${esc(enumText(offerItem.tier))}</span>
+        ${offerItem.quality.map((quality) => `<span class="badge">${esc(enumText(quality))}</span>`).join("")}
       </span>
       <span class="offer-meta">
         ${season ? `<span>${season}</span><span class="sep"></span>` : ""}
-        <span class="verified ${offerItem.verified ? "" : "pending"}">${offerItem.verified ? "已验证" : "待确认"}</span>
+        <span class="verified ${offerItem.verified ? "" : "pending"}">${offerItem.verified ? t("offer.verified") : t("offer.pending")}</span>
       </span>
     </span>
-    <span class="offer-price">${esc(offerItem.price)}</span>
-    <span class="offer-cta">${offerItem.verified ? "去观看" : "去确认"} ↗</span>
+    <span class="offer-price">${esc(enumText(offerItem.price))}</span>
+    <span class="offer-cta">${offerItem.verified ? t("offer.watch") : t("offer.check")} ↗</span>
   </a>`;
 }
 
@@ -1318,15 +1344,15 @@ function renderOffers() {
   });
 
   if (!list.length) {
-    box.innerHTML = `<div class="offer-empty">当前筛选下没有渠道，试试放宽条件。</div>`;
+    box.innerHTML = `<div class="offer-empty">${t("offer.empty")}</div>`;
     return;
   }
 
   const online = list.filter((offerItem) => offerItem.verified);
   const pending = list.filter((offerItem) => !offerItem.verified);
   box.innerHTML =
-    (online.length ? offerGroupHTML("已验证可看", online, true, item) : "") +
-    (pending.length ? offerGroupHTML("待确认", pending, false, item) : "");
+    (online.length ? offerGroupHTML(t("offer.groupVerified"), online, true, item) : "") +
+    (pending.length ? offerGroupHTML(t("offer.groupPending"), pending, false, item) : "");
 }
 
 async function renderDetail(id, query) {
@@ -1337,7 +1363,7 @@ async function renderDetail(id, query) {
 
   const initialQuery = (query || state.lastQuery || "").trim();
   if (initialQuery) state.lastQuery = initialQuery;
-  document.title = `正在整理观看渠道 — ${BRAND.name}`;
+  document.title = t("detail.loadTitle", { name: BRAND.name });
   setRouteBusy(true);
 
   app.innerHTML = `<div class="view">
@@ -1405,11 +1431,11 @@ function favCardHTML(record) {
         <div class="card-meta">
           ${rating ? `<span class="rating"><span class="star">★</span>${rating}</span><span class="divider"></span>` : ""}
           <span>${esc(record.year || "")}</span>
-          <span>${esc(record.type || "")}</span>
+          <span>${esc(enumText(record.type))}</span>
         </div>
         <div class="card-foot">
-          <span class="status">已收藏</span>
-          <span class="card-cta">查看渠道 →</span>
+          <span class="status">${t("list.status")}</span>
+          <span class="card-cta">${t("list.cta")}</span>
         </div>
       </div>
     </a>
@@ -1427,7 +1453,7 @@ async function renderFavorites(params) {
   const panFavs = readPanFavs();
   const totalFavs = favs.length + panFavs.length;
 
-  document.title = `我的收藏 — ${BRAND.name}`;
+  document.title = t("list.docTitle", { name: BRAND.name });
   setRouteBusy(true);
 
   let sharedItems = [];
@@ -1443,29 +1469,35 @@ async function renderFavorites(params) {
 
   const favCards = favs.map(favCardHTML).join("");
   const sharedCards = sharedItems.map(favCardHTML).join("");
+  const subParts = [
+    t("list.subBase", { n: totalFavs }),
+    favs.length ? t("list.subTitles", { n: favs.length }) : "",
+    panFavs.length ? t("list.subPan", { n: panFavs.length }) : "",
+    totalFavs ? t("list.subWarn") : ""
+  ].join("");
 
   app.innerHTML = `<div class="view">
     ${headerHTML({ compact: true, query: state.lastQuery })}
     <main class="magazine-page list-page">
       <div class="list-head">
         <div>
-          <p class="list-kicker">只保存在这台设备的浏览器里</p>
-          <h1 class="list-title">我的收藏</h1>
-          <p class="list-sub">共 <b>${totalFavs}</b> 项${favs.length ? ` · 作品 <b>${favs.length}</b> 部` : ""}${panFavs.length ? ` · 网盘分享 <b>${panFavs.length}</b> 条` : ""}${totalFavs ? " · 换浏览器或清缓存会丢失" : ""}</p>
+          <p class="list-kicker">${t("list.kicker")}</p>
+          <h1 class="list-title">${t("list.heading")}</h1>
+          <p class="list-sub">${subParts}</p>
         </div>
         ${favs.length ? `<div class="list-actions">
-          <button class="quiet-btn" type="button" data-copy-list>复制分享链接</button>
-          <button class="quiet-btn" type="button" data-clear-favs>清空作品</button>
+          <button class="quiet-btn" type="button" data-copy-list>${t("list.copyShare")}</button>
+          <button class="quiet-btn" type="button" data-clear-favs>${t("list.clearTitles")}</button>
         </div>` : ""}
       </div>
 
       ${panFavs.length ? `<section class="shared-block pan-fav-block">
         <div class="shared-head">
           <div>
-            <h2>网盘分享收藏</h2>
-            <p class="sub">共 <b>${panFavs.length}</b> 条 · 链接与提取码只存在这台设备</p>
+            <h2>${t("list.panHeading")}</h2>
+            <p class="sub">${t("list.panSub", { n: panFavs.length })}</p>
           </div>
-          <button class="quiet-btn" type="button" data-clear-pan-favs>清空分享</button>
+          <button class="quiet-btn" type="button" data-clear-pan-favs>${t("list.clearPan")}</button>
         </div>
         <div class="pan-results">${panFavs.map(panFavCardHTML).join("")}</div>
       </section>` : ""}
@@ -1473,18 +1505,18 @@ async function renderFavorites(params) {
       ${favs.length ? `<div class="list-grid">${favCards}</div>` : ""}
 
       ${totalFavs ? "" : `<div class="empty">
-            <h3>还没有收藏</h3>
-            <p>搜索结果卡片右上角有个心形，点一下就会存到这台设备的浏览器里；再点一次取消。</p>
-            <div class="chips"><a class="chip" href="/">去看看首页推荐</a></div>
+            <h3>${t("list.emptyHead")}</h3>
+            <p>${t("list.emptyBody")}</p>
+            <div class="chips"><a class="chip" href="/">${t("list.emptyCta")}</a></div>
           </div>`}
 
       ${sharedItems.length ? `<section class="shared-block">
         <div class="shared-head">
           <div>
-            <h2>别人分享的片单</h2>
-            <p class="sub">共 <b>${sharedItems.length}</b> 部，只有你点了才会存进自己的片单</p>
+            <h2>${t("list.sharedHeading")}</h2>
+            <p class="sub">${t("list.sharedSub", { n: sharedItems.length })}</p>
           </div>
-          <button class="quiet-btn" type="button" data-import-ids="${esc(sharedIds.join(","))}">全部加入片单</button>
+          <button class="quiet-btn" type="button" data-import-ids="${esc(sharedIds.join(","))}">${t("list.importAll")}</button>
         </div>
         <div class="list-grid">${sharedCards}</div>
       </section>` : ""}
@@ -1495,15 +1527,15 @@ async function renderFavorites(params) {
 }
 
 function renderNotFound(id) {
-  document.title = `没有找到这部作品 — ${BRAND.name}`;
+  document.title = t("notFound.title", { name: BRAND.name });
   app.innerHTML = `<div class="view">
     ${headerHTML({ compact: true, query: state.lastQuery })}
     <main class="magazine-page">
       <div class="empty">
         ${ICON_EMPTY}
-        <h3>这部作品不在演示片库里</h3>
-        <p>编号 ${esc(id)} 没有对应数据，回到首页重新搜索吧。</p>
-        <div class="chips"><a class="chip" href="/">回到首页</a></div>
+        <h3>${t("notFound.head")}</h3>
+        <p>${t("notFound.body", { id: esc(id) })}</p>
+        <div class="chips"><a class="chip" href="/">${t("action.home")}</a></div>
       </div>
     </main>
     ${footerHTML()}
@@ -1520,6 +1552,23 @@ function updateScrollState() {
   if (backTop) backTop.hidden = window.scrollY < 480;
 }
 
+let lastTrack = { key: "", at: 0 };
+
+/** 匿名页面访问：把真实执行了 JS 的页面记进 D1，用来和 Cloudflare 的请求量对照。 */
+function trackPage(pathname) {
+  const path = pathname === "/" ? "/"
+    : pathname === "/search" ? "/search"
+    : pathname === "/list" ? "/list"
+    : pathname.startsWith("/title/") ? "/title"
+    : "";
+  if (!path) return;
+  const key = `${path}|${getLang()}`;
+  const now = Date.now();
+  if (key === lastTrack.key && now - lastTrack.at < 1500) return;
+  lastTrack = { key, at: now };
+  API.track({ kind: "page", path, lang: getLang() }).catch(() => {});
+}
+
 async function route() {
   state.routeToken += 1;
   if (state.detailController) state.detailController.abort();
@@ -1529,6 +1578,7 @@ async function route() {
   state.filters = null;
   setRouteBusy(false);
   const pathname = location.pathname.replace(/\/+$/, "") || "/";
+  trackPage(pathname);
   const params = new URLSearchParams(location.search);
 
   if (pathname.startsWith("/title/")) {
@@ -1633,6 +1683,12 @@ document.addEventListener("click", async (event) => {
     const kind = action.dataset.action;
     if (kind === "theme") { toggleTheme(); return; }
     if (kind === "feedback") { openFeedback(); return; }
+    if (kind === "lang") {
+      setLang(getLang() === "zh" ? "en" : "zh");
+      latestCache = null;
+      route();
+      return;
+    }
     if (kind === "back") {
       if (history.length > 1 && document.referrer) history.back();
       else navigate("/");
@@ -1658,9 +1714,9 @@ document.addEventListener("click", async (event) => {
     event.preventDefault();
     event.stopPropagation();
     const item = state.panById.get(panFavBtn.dataset.panFav);
-    if (!item) { showToast("这条分享的信息已失效，请重新搜索"); return; }
+    if (!item) { showToast(t("toast.panStale")); return; }
     const on = togglePanFav(item);
-    showToast(on ? `已收藏 · ${item.title || "这条分享"}` : "已取消收藏");
+    showToast(on ? t("toast.favAdded", { title: item.title || t("share.fallback") }) : t("toast.favRemoved"));
     if (location.pathname === "/list") await renderFavorites(new URLSearchParams(location.search));
     return;
   }
@@ -1669,7 +1725,7 @@ document.addEventListener("click", async (event) => {
   if (panUnfavBtn) {
     const id = panUnfavBtn.dataset.panUnfav;
     if (isPanFav(id)) togglePanFav({ id });
-    showToast("已取消收藏");
+    showToast(t("toast.favRemoved"));
     await renderFavorites(new URLSearchParams(location.search));
     return;
   }
@@ -1677,12 +1733,12 @@ document.addEventListener("click", async (event) => {
   const panCopyBtn = event.target.closest("[data-pan-copy]");
   if (panCopyBtn) {
     const url = safePanAnyURL(panCopyBtn.dataset.panUrl);
-    if (!url) { showToast("链接格式不符合要求，不能复制"); return; }
+    if (!url) { showToast(t("toast.badLink")); return; }
     const password = panCopyBtn.dataset.panPassword;
     if (panCopyBtn.dataset.panCopy === "password") {
-      if (password) await copyText(password, "提取码已复制");
+      if (password) await copyText(password, t("toast.codeCopied"));
     } else {
-      await copyText(url, "分享链接已复制");
+      await copyText(url, t("toast.linkCopied"));
     }
     return;
   }
@@ -1694,20 +1750,20 @@ document.addEventListener("click", async (event) => {
     const id = favBtn.dataset.fav;
     const item = state.byId.get(id) || { id, title: id };
     const added = toggleFavorite(item);
-    showToast(added ? `已收藏 · ${item.title || id}` : "已取消收藏");
+    showToast(added ? t("toast.favAdded", { title: item.title || id }) : t("toast.favRemoved"));
     if (location.pathname === "/list") await renderFavorites(new URLSearchParams(location.search));
     return;
   }
 
   const shareBtn = event.target.closest("[data-share]");
   if (shareBtn) {
-    await copyText(`${location.origin}/title/${encodeURIComponent(shareBtn.dataset.share)}`, "作品链接已复制");
+    await copyText(`${location.origin}/title/${encodeURIComponent(shareBtn.dataset.share)}`, t("toast.titleLink"));
     return;
   }
 
   const copyListBtn = event.target.closest("[data-copy-list]");
   if (copyListBtn) {
-    await copyText(shareURL(), "片单链接已复制，发给朋友就能一起看");
+    await copyText(shareURL(), t("toast.listLink"));
     return;
   }
 
@@ -1715,10 +1771,10 @@ document.addEventListener("click", async (event) => {
   if (clearBtn) {
     const count = readFavorites().length;
     if (!count) return;
-    if (!window.confirm(`确定清空 ${count} 部作品收藏吗？清空后只能用分享链接找回。`)) return;
+    if (!window.confirm(t("confirm.clearTitles", { n: count }))) return;
     writeFavorites([]);
     await renderFavorites(new URLSearchParams(location.search));
-    showToast("作品收藏已清空");
+    showToast(t("toast.titlesCleared"));
     return;
   }
 
@@ -1726,10 +1782,10 @@ document.addEventListener("click", async (event) => {
   if (clearPanBtn) {
     const count = readPanFavs().length;
     if (!count) return;
-    if (!window.confirm(`确定清空 ${count} 条网盘分享收藏吗？链接与提取码将一并删除。`)) return;
+    if (!window.confirm(t("confirm.clearPan", { n: count }))) return;
     writePanFavs([]);
     await renderFavorites(new URLSearchParams(location.search));
-    showToast("分享收藏已清空");
+    showToast(t("toast.panCleared"));
     return;
   }
 
@@ -1747,7 +1803,7 @@ document.addEventListener("click", async (event) => {
     });
     if (added) writeFavorites(list);
     await renderFavorites(new URLSearchParams(location.search));
-    showToast(added ? `已加入 ${added} 部` : "这些都已经在你的片单里了");
+    showToast(added ? t("toast.imported", { n: added }) : t("toast.importNone"));
     return;
   }
 
@@ -1887,7 +1943,7 @@ if (feedbackForm) {
     const area = feedbackForm.querySelector('textarea[name="message"]');
     const message = area ? area.value.trim() : "";
     if (message.length < 2) {
-      showToast("再多写两个字吧");
+      showToast(t("toast.tooShort"));
       if (area) area.focus();
       return;
     }
@@ -1897,7 +1953,7 @@ if (feedbackForm) {
     const button = feedbackForm.querySelector('button[type="submit"]');
     if (button) {
       button.disabled = true;
-      button.textContent = "发送中…";
+      button.textContent = t("feedback.sending");
     }
 
     try {
@@ -1908,13 +1964,13 @@ if (feedbackForm) {
       });
       feedbackDialog.close();
       feedbackForm.reset();
-      showToast("收到，谢谢你的留言");
+      showToast(t("toast.feedbackSent"));
     } catch (err) {
       showToast(friendlyError(err));
     } finally {
       if (button) {
         button.disabled = false;
-        button.textContent = "发送";
+        button.textContent = t("feedback.send");
       }
     }
   });

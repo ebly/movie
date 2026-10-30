@@ -16,7 +16,7 @@ const API = (() => {
 
   async function request(path, { method = "GET", body, signal } = {}) {
     if (isFile) {
-      throw new Error("请先在项目目录运行 npm start，再访问 http://127.0.0.1:4173");
+      throw new Error(t("api.needStart"));
     }
 
     const headers = { Accept: "application/json" };
@@ -39,7 +39,7 @@ const API = (() => {
     if (!response.ok) {
       const message = payload && payload.error && payload.error.message
         ? payload.error.message
-        : `请求失败（HTTP ${response.status}）`;
+        : t("api.httpError", { status: response.status });
       const error = new Error(message);
       error.status = response.status;
       error.code = payload && payload.error ? payload.error.code : "http_error";
@@ -71,8 +71,8 @@ const API = (() => {
     },
     async panSearch({ q = "", type = "quark", offset = 0, reload = false, signal } = {}) {
       const query = String(q).trim();
-      if (!query) throw new Error("请输入网盘资源搜索关键词。");
-      if (!Number.isSafeInteger(offset) || offset < 0) throw new Error("分页位置无效。");
+      if (!query) throw new Error(t("api.queryRequired"));
+      if (!Number.isSafeInteger(offset) || offset < 0) throw new Error(t("api.badOffset"));
       const params = new URLSearchParams({ q: query, type, offset: String(offset), limit: "30" });
       // 只跳过 movie 的短缓存，不向 PanSou 发送 refresh。
       if (reload) params.set("reload", "1");
@@ -82,12 +82,15 @@ const API = (() => {
         || data.offset !== offset || data.limit !== 30
         || typeof data.hasMore !== "boolean"
         || typeof data.complete !== "boolean") {
-        throw new Error("网盘搜索响应或分页格式异常，请稍后重试。");
+        throw new Error(t("api.panFormat"));
       }
       return data;
     },
     feedback(payload) {
       return request("/api/feedback", { method: "POST", body: payload });
+    },
+    track(payload) {
+      return request("/api/track", { method: "POST", body: payload });
     }
   };
 })();

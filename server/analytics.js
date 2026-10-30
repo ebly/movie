@@ -6,7 +6,11 @@ const crypto = require("crypto");
 const BRAND = require("../config/brand.json");
 
 const MAX_EVENTS = 200_000;
-const EVENT_TYPES = new Set(["search", "view", "click"]);
+const EVENT_TYPES = new Set(["search", "view", "click", "pan_search", "page"]);
+
+function isSearchEvent(event) {
+  return event.type === "search" || event.type === "pan_search";
+}
 
 function pad(value) {
   return String(value).padStart(2, "0");
@@ -30,7 +34,7 @@ function emptyBucket(date) {
 }
 
 function addToBucket(bucket, event) {
-  if (event.type === "search") bucket.searches += 1;
+  if (isSearchEvent(event)) bucket.searches += 1;
   if (event.type === "view") bucket.views += 1;
   if (event.type === "click") bucket.clicks += 1;
   if (event.visitorId) bucket.visitors.add(event.visitorId);
@@ -44,7 +48,7 @@ function summarize(events) {
   let zeroSearches = 0;
   events.forEach((event) => {
     if (event.visitorId) visitors.add(event.visitorId);
-    if (event.type === "search") {
+    if (isSearchEvent(event)) {
       searches += 1;
       if (event.total === 0) zeroSearches += 1;
     }
@@ -152,6 +156,27 @@ class AnalyticsStore {
     });
   }
 
+  /** 网盘搜索：netdiskType 记夸克/百度等类型，total 记结果总数。 */
+  recordPanSearch({ query, type, total, visitorId }) {
+    return this.add({
+      type: "pan_search",
+      query: String(query || "").slice(0, 80),
+      netdiskType: String(type || ""),
+      total: Number(total) || 0,
+      visitorId: visitorId || null
+    });
+  }
+
+  /** 页面访问：path 是归一化路径（/、/search、/list、/title），lang 是界面语言。 */
+  recordPage({ path, lang, visitorId }) {
+    return this.add({
+      type: "page",
+      path: String(path || "").slice(0, 80),
+      lang: String(lang || ""),
+      visitorId: visitorId || null
+    });
+  }
+
   dashboard({ days = 30, feedback = [] } = {}) {
     const rangeDays = Math.min(Math.max(Math.round(Number(days) || 30), 1), 365);
     const now = new Date();
@@ -191,7 +216,7 @@ class AnalyticsStore {
     const visitorMap = new Map();
 
     current.forEach((event) => {
-      if (event.type === "search" && event.query) {
+      if (isSearchEvent(event) && event.query) {
         const key = String(event.query).trim().toLowerCase();
         const entry = searchMap.get(key) || {
           query: String(event.query).trim(),
@@ -262,7 +287,7 @@ class AnalyticsStore {
           clicks: 0,
           lastAt: event.at
         };
-        if (event.type === "search") entry.searches += 1;
+        if (isSearchEvent(event)) entry.searches += 1;
         if (event.type === "view") entry.views += 1;
         if (event.type === "click") entry.clicks += 1;
         entry.lastAt = event.at;
@@ -279,11 +304,12 @@ class AnalyticsStore {
     }));
 
     const recent = current
+      .filter((event) => event.type !== "page")
       .slice()
       .sort((a, b) => String(b.at).localeCompare(String(a.at)))
       .slice(0, 14)
       .map((event) => {
-        if (event.type === "search") {
+        if (isSearchEvent(event)) {
           return {
             type: "search",
             at: event.at,

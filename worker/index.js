@@ -52,6 +52,16 @@ async function handleQuarkSearch(ctx) {
   panInflight += 1;
   try {
     const result = await pansouClients.get(ctx.env).search(ctx.url.searchParams);
+    const query = String(ctx.url.searchParams.get("q") || "").trim();
+    if (query && ctx.env.DB) {
+      const visitor = visitorId(ctx);
+      record(ctx.execution, createAnalytics({ db: ctx.env.DB }).recordPanSearch({
+        query,
+        type: result.type,
+        total: result.total,
+        visitorId: visitor
+      }));
+    }
     return sendJSON(ctx, 200, result);
   } catch (err) {
     if (err instanceof pansou.PansouError) return sendError(ctx, err.status, err.code, err.message);
@@ -112,6 +122,7 @@ const API_INDEX = {
     { method: "GET", path: "/api/titles", description: "作品列表（等价于空关键词搜索）" },
     { method: "GET", path: "/api/titles/:id", description: "作品详情与相似作品" },
     { method: "GET", path: "/api/titles/:id/offers?season=&region=&tier=&quality=&verified=1", description: "筛选观看渠道" },
+    { method: "POST", path: "/api/track", description: "匿名页面访问埋点（path=/, /search, /list, /title；lang=zh/en）" },
     { method: "POST", path: "/api/feedback", description: "提交反馈（JSON，60 秒内最多 5 次）" }
   ],
   disclaimer: DISCLAIMER
@@ -143,8 +154,22 @@ const CSP = [
 const allowFeedback = createRateLimiter({ windowMs: 60_000, max: 5 });
 const allowLogin = createRateLimiter({ windowMs: 10 * 60_000, max: 8 });
 const allowGo = createRateLimiter({ windowMs: 60_000, max: 60 });
+// 页面访问埋点：每次 SPA 路由一次，正常用户远低于这个上限。
+const allowTrack = createRateLimiter({ windowMs: 60_000, max: 120 });
 
 const VISITOR_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const PAGE_PATHS = new Set(["/", "/search", "/list", "/title"]);
+
+/** 页面埋点只接受归一化后的固定路径，避免把任意 URL 写进统计。 */
+function pagePath(value) {
+  const raw = String(value || "").trim();
+  return PAGE_PATHS.has(raw) ? raw : "";
+}
+
+function pageLang(value) {
+  const lang = String(value || "").trim().toLowerCase();
+  return lang === "zh" || lang === "en" ? lang : "";
+}
 
 /* ---------------- 响应助手（对齐 server/lib/http.js） ---------------- */
 
@@ -282,6 +307,26 @@ async function handleApi(ctx) {
     });
   }
 
+  if (path === "/api/track") {
+    if (method !== "POST") return methodNotAllowed(ctx, "POST");
+    if (!allowTrack(clientKey(request))) {
+      return sendError(ctx, 429, "rate_limited", "访问记录太频繁", { "Retry-After": "60" });
+    }
+    const body = await readJSON(request, { limit: 1024 });
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      throw new HttpError(422, "invalid_body", "请求体格式不正确");
+    }
+    const page = pagePath(body.path);
+    if (!page) return sendError(ctx, 422, "invalid_path", "未知页面");
+    const visitor = visitorId(ctx);
+    record(ctx.execution, analytics.recordPage({
+      path: page,
+      lang: pageLang(body.lang),
+      visitorId: visitor
+    }));
+    return sendJSON(ctx, 202, { ok: true });
+  }
+
   if (path === "/api/search" || path === "/api/titles") {
     if (method !== "GET") return methodNotAllowed(ctx, "GET");
     const started = Date.now();
@@ -292,7 +337,8 @@ async function handleApi(ctx) {
       limit: url.searchParams.get("limit") || undefined
     });
     data.tookMs = Date.now() - started;
-    if (analytics && data.query) {
+    // 联想请求（suggest=1）不计入热搜统计，只记用户真正提交的搜索。
+    if (analytics && data.query && url.searchParams.get("suggest") !== "1") {
       const visitor = visitorId(ctx);
       record(ctx.execution, analytics.recordSearch({
         query: data.query,
