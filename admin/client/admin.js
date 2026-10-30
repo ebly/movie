@@ -1121,10 +1121,12 @@ const PAN_PREFIX = {
 function swapPanPrefix(link, pan) {
   const prefix = PAN_PREFIX[pan] || "";
   const value = String(link || "").trim();
-  if (!value) return prefix;
+  if (!value) return "";
   for (const candidate of Object.values(PAN_PREFIX)) {
     if (candidate && value.startsWith(candidate)) return prefix + value.slice(candidate.length);
   }
+  // 只填了分享码（不是完整 URL）时自动补当前网盘前缀
+  if (!/^https?:\/\//i.test(value)) return prefix + value;
   return value;
 }
 
@@ -1190,7 +1192,7 @@ function renderCatalogList() {
       </div>
       <div class="catalog-meta">
         <span class="tag">${esc(catalogPanLabel(entry.pan))}</span>
-        ${entry.linkValid === false ? `<span class="tag amber">链接无效</span>` : ""}
+        ${entry.link && entry.linkValid === false ? `<span class="tag amber">链接无效</span>` : ""}
         ${entry.password ? `<span>提取码 ${esc(entry.password)}</span>` : ""}
         <span class="catalog-link" title="${esc(entry.link)}">${esc(entry.link)}</span>
       </div>
@@ -1230,8 +1232,8 @@ function openCatalogForm(entry) {
       <div class="field"><label>年份</label><input name="year" type="number" min="1900" max="2099" value="${e.year || ""}"></div>
       <div class="field"><label>类型</label><select name="kind"><option value="电影"${e.kind === "电影" ? " selected" : ""}>电影</option><option value="剧集"${e.kind === "剧集" ? " selected" : ""}>剧集</option></select></div>
       <div class="field"><label>评分（可选）</label><input name="rating" type="number" step="0.1" min="0" max="10" value="${e.rating || ""}"></div>
-      <div class="field"><label>网盘类型 <span class="req">*</span></label><select name="pan">${CATALOG_PANS.map(([id, label]) => `<option value="${id}"${e.pan === id ? " selected" : ""}>${label}</option>`).join("")}</select></div>
-      <div class="field full"><label>分享链接 <span class="req">*</span></label><input name="link" type="url" placeholder="${esc(PAN_PREFIX[e.pan] || "https://pan.quark.cn/s/")}" value="${esc(e.link || PAN_PREFIX[e.pan] || "")}" required></div>
+      <div class="field"><label>网盘类型 <span class="optional">可选</span></label><select name="pan">${CATALOG_PANS.map(([id, label]) => `<option value="${id}"${e.pan === id ? " selected" : ""}>${label}</option>`).join("")}</select></div>
+      <div class="field full"><label>分享链接 <span class="optional">可选</span></label><input name="link" type="url" placeholder="${esc(PAN_PREFIX[e.pan] || "https://pan.quark.cn/s/")}" value="${esc(e.link || "")}"></div>
       <div class="field full">
         <label>海报图片 <span class="optional">可选</span></label>
         <div class="poster-pick">

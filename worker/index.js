@@ -355,7 +355,7 @@ function catalogInput(body) {
   const title = cleanText(body.title, 120);
   if (!title) throw new HttpError(422, "invalid_title", "片名不能为空");
   const link = String(body.link || "").trim();
-  if (!/^https?:\/\/\S+$/i.test(link)) throw new HttpError(422, "invalid_link", "链接必须是 http(s) 地址");
+  if (link && !/^https?:\/\/\S+$/i.test(link)) throw new HttpError(422, "invalid_link", "链接必须是 http(s) 地址");
   const pan = CATALOG_PANS.has(String(body.pan)) ? String(body.pan) : "quark";
   const poster = String(body.poster || "").trim();
   if (poster && !/^https?:\/\/\S+$/i.test(poster)) throw new HttpError(422, "invalid_poster", "海报必须是 http(s) 图片地址");
