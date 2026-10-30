@@ -1237,6 +1237,7 @@ async function renderPanResults(params, { reload = false } = {}) {
       </div>`}
     ${panPaginationHTML(q, type, data)}`;
   app.innerHTML = panViewHTML(q, type, body);
+  hydrateSearchFallback();
   updateScrollState();
 }
 
@@ -1244,23 +1245,55 @@ async function renderPanResults(params, { reload = false } = {}) {
 
 /* 空搜索兜底：站内片库按评分推几部，boot 失败就退回热门搜索词 */
 function emptyFallbackHTML() {
-  const pool = (BOOT.all && BOOT.all.length ? [...BOOT.all] : [])
-    .sort((a, b) => (b.rating || 0) - (a.rating || 0))
-    .slice(0, 5);
-  if (pool.length) {
-    return `<div class="empty-fallback">
-      <span class="empty-fallback-label">${t("fallback.top")}</span>
-      <div class="chips">${pool.map((item) => `<a class="chip" href="/title/${encodeURIComponent(item.id)}">${esc(item.title)}</a>`).join("")}</div>
-    </div>`;
+  return `<div class="empty-fallback" id="search-fallback" aria-busy="true"></div>`;
+}
+
+let featuredPoolCache = null;
+
+/** 搜索空状态用的「最热」池：片库勾选最热 + 豆瓣最新补足，只保留有海报的。 */
+async function loadFeaturedPool() {
+  if (featuredPoolCache) return featuredPoolCache;
+  let mine = [];
+  let douban = [];
+  try {
+    const cat = await API.catalog();
+    mine = (cat && Array.isArray(cat.items)) ? cat.items.filter((item) => item && item.featured) : [];
+  } catch (err) {
+    mine = [];
   }
-  const hot = (BOOT.hot || []).filter((item) => item && item.title).slice(0, 5);
-  if (hot.length) {
-    return `<div class="empty-fallback">
-      <span class="empty-fallback-label">${t("fallback.hot")}</span>
-      <div class="chips">${hot.map((item) => `<a class="chip" href="${esc(searchURL(item.title))}">${esc(item.title)}</a>`).join("")}</div>
-    </div>`;
+  try {
+    const data = await API.doubanList({ kind: "latest", limit: 11 });
+    douban = (data && Array.isArray(data.items)) ? data.items : [];
+  } catch (err) {
+    douban = [];
   }
-  return "";
+  featuredPoolCache = mergeHomeFeeds(mine, douban, 11).filter((item) => item && item.poster);
+  return featuredPoolCache;
+}
+
+async function hydrateSearchFallback() {
+  const box = document.getElementById("search-fallback");
+  if (!box) return;
+  try {
+    const pool = await loadFeaturedPool();
+    if (!box.isConnected) return;
+    if (!pool.length) { box.remove(); return; }
+    box.removeAttribute("aria-busy");
+    box.innerHTML = `<span class="empty-fallback-label">${t("fallback.hot")}</span>
+      <div class="poster-row">${pool.map(fallbackPosterHTML).join("")}</div>`;
+  } catch (err) {
+    box.remove();
+  }
+}
+
+function fallbackPosterHTML(item) {
+  const art = item.art || paletteFor(item.title);
+  return `<a class="poster-tile" href="${esc(searchURL(item.title))}">
+    <div class="poster-tile-img" style="--p1:${art.p1 || "#d9d0c6"};--p2:${art.p2 || "#77776d"};--p3:${art.p3 || "#a4684f"};--p-ink:${art.ink || "#2f3230"}">
+      ${item.poster ? `<img class="poster-img" src="${esc(imageSrc(item.poster, true))}" alt="${esc(item.title)}" loading="lazy" decoding="async">` : ""}
+    </div>
+    <span class="poster-tile-title">${esc(item.title)}</span>
+  </a>`;
 }
 
 function loadingHTML() {
