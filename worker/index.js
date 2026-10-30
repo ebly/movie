@@ -311,6 +311,7 @@ function catalogFromRow(row) {
     rating: Number.isFinite(rating) && rating > 0 ? rating : null,
     featured: Number(row.featured) ? 1 : 0,
     latest: Number(row.latest) ? 1 : 0,
+    poster: row.poster || "",
     pan: row.pan || "quark",
     link: row.link || "",
     password: row.password || "",
@@ -342,6 +343,8 @@ function catalogInput(body) {
   const link = String(body.link || "").trim();
   if (!/^https?:\/\/\S+$/i.test(link)) throw new HttpError(422, "invalid_link", "链接必须是 http(s) 地址");
   const pan = CATALOG_PANS.has(String(body.pan)) ? String(body.pan) : "quark";
+  const poster = String(body.poster || "").trim();
+  if (poster && !/^https?:\/\/\S+$/i.test(poster)) throw new HttpError(422, "invalid_poster", "海报必须是 http(s) 图片地址");
   const year = Number(body.year);
   const rating = Number(body.rating);
   const sort = Number(body.sort);
@@ -353,6 +356,7 @@ function catalogInput(body) {
     pan,
     featured: (body.featured === true || body.featured === 1 || body.featured === "1" || body.featured === "on") ? 1 : 0,
     latest: (body.latest === true || body.latest === 1 || body.latest === "1" || body.latest === "on") ? 1 : 0,
+    poster,
     link,
     password: cleanText(body.password, 64),
     note: cleanText(body.note, 200),
@@ -447,7 +451,8 @@ async function handleApi(ctx) {
       kind: entry.kind,
       rating: entry.rating,
       featured: entry.featured,
-      latest: entry.latest
+      latest: entry.latest,
+      poster: entry.poster
     }));
     return sendJSON(ctx, 200, { items });
   }
@@ -725,6 +730,32 @@ async function handleAdmin(ctx) {
     }
   }
 
+  if (path === "/api/admin/poster") {
+    if (method !== "GET") return methodNotAllowed(ctx, "GET");
+    const query = cleanText(url.searchParams.get("title") || url.searchParams.get("q"), 120);
+    const key = ctx.env.TMDB_API_KEY || "";
+    try {
+      const results = await tmdb.search(query, { key, baseUrl: ctx.env.TMDB_BASE || "" });
+      const first = Array.isArray(results) ? results[0] : null;
+      return sendJSON(ctx, 200, {
+        ok: true,
+        poster: first && first.poster ? first.poster : "",
+        title: first ? first.title : "",
+        year: first ? first.year : null
+      });
+    } catch (err) {
+      if (err instanceof tmdb.TmdbError) {
+        const status = err.code === "empty_query" ? 422
+          : err.code === "missing_key" ? 400
+          : err.code === "invalid_key" ? 401
+          : err.code === "rate_limited" ? 429
+          : 502;
+        return sendError(ctx, status, err.code, err.message);
+      }
+      throw err;
+    }
+  }
+
   if (path === "/api/admin/titles") {
     if (method === "GET") {
       const q = cleanText(url.searchParams.get("q"), 60).toLowerCase();
@@ -803,8 +834,8 @@ async function handleAdmin(ctx) {
       const input = catalogInput(body);
       const now = new Date().toISOString();
       const res = await ctx.env.DB.prepare(
-        "INSERT INTO catalog (title, year, kind, rating, pan, featured, latest, link, password, note, sort, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-      ).bind(input.title, input.year, input.kind, input.rating, input.pan, input.featured, input.latest, input.link, input.password, input.note, input.sort, now, now).run();
+        "INSERT INTO catalog (title, year, kind, rating, pan, featured, latest, poster, link, password, note, sort, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      ).bind(input.title, input.year, input.kind, input.rating, input.pan, input.featured, input.latest, input.poster, input.link, input.password, input.note, input.sort, now, now).run();
       const id = res.meta && res.meta.last_row_id;
       const created = (await catalogAll(ctx.env)).find((entry) => entry.id === id) || null;
       return sendJSON(ctx, 201, { item: created });
@@ -819,8 +850,8 @@ async function handleAdmin(ctx) {
       const input = catalogInput(body);
       const now = new Date().toISOString();
       const res = await ctx.env.DB.prepare(
-        "UPDATE catalog SET title = ?, year = ?, kind = ?, rating = ?, pan = ?, featured = ?, latest = ?, link = ?, password = ?, note = ?, sort = ?, updated_at = ? WHERE id = ?"
-      ).bind(input.title, input.year, input.kind, input.rating, input.pan, input.featured, input.latest, input.link, input.password, input.note, input.sort, now, id).run();
+        "UPDATE catalog SET title = ?, year = ?, kind = ?, rating = ?, pan = ?, featured = ?, latest = ?, poster = ?, link = ?, password = ?, note = ?, sort = ?, updated_at = ? WHERE id = ?"
+      ).bind(input.title, input.year, input.kind, input.rating, input.pan, input.featured, input.latest, input.poster, input.link, input.password, input.note, input.sort, now, id).run();
       if (!res.meta || !res.meta.changes) return sendError(ctx, 404, "not_found", "条目不存在");
       const updated = (await catalogAll(ctx.env)).find((entry) => entry.id === id) || null;
       return sendJSON(ctx, 200, { item: updated });

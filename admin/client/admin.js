@@ -1213,6 +1213,14 @@ function openCatalogForm(entry) {
       <div class="field"><label>评分（可选）</label><input name="rating" type="number" step="0.1" min="0" max="10" value="${e.rating || ""}"></div>
       <div class="field"><label>网盘类型 <span class="req">*</span></label><select name="pan">${CATALOG_PANS.map(([id, label]) => `<option value="${id}"${e.pan === id ? " selected" : ""}>${label}</option>`).join("")}</select></div>
       <div class="field full"><label>分享链接 <span class="req">*</span></label><input name="link" type="url" placeholder="${esc(PAN_PREFIX[e.pan] || "https://pan.quark.cn/s/")}" value="${esc(e.link || PAN_PREFIX[e.pan] || "")}" required></div>
+      <div class="field full">
+        <label>海报图片 <span class="optional">可选</span></label>
+        <div class="poster-pick">
+          <input name="poster" type="url" placeholder="https://image.tmdb.org/..." value="${esc(e.poster || "")}">
+          <button class="btn btn-ghost btn-sm" type="button" data-poster-lookup>按片名找图</button>
+        </div>
+        <div class="poster-preview" id="poster-preview">${e.poster ? `<img src="${esc(e.poster)}" alt="">` : ""}</div>
+      </div>
       <div class="field"><label>提取码</label><input name="password" type="text" value="${esc(e.password || "")}"></div>
       <div class="field"><label>排序（小的在前）</label><input name="sort" type="number" value="${Number(e.sort) || 0}"></div>
       <div class="field full"><label>备注 <span class="optional">可选</span></label><input name="note" type="text" value="${esc(e.note || "")}"></div>
@@ -1233,6 +1241,40 @@ function openCatalogForm(entry) {
       linkInput.value = swapPanPrefix(linkInput.value, panSelect.value);
     });
   }
+  const posterInput = form.querySelector('input[name="poster"]');
+  const posterPreview = form.querySelector("#poster-preview");
+  const lookupBtn = form.querySelector("[data-poster-lookup]");
+  const renderPosterPreview = () => {
+    if (!posterPreview) return;
+    const src = posterInput ? posterInput.value.trim() : "";
+    posterPreview.innerHTML = src ? `<img src="${esc(src)}" alt="">` : "";
+  };
+  if (posterInput) posterInput.addEventListener("change", renderPosterPreview);
+  if (lookupBtn && posterInput) {
+    lookupBtn.addEventListener("click", async () => {
+      const titleInput = form.querySelector('input[name="title"]');
+      const title = titleInput ? titleInput.value.trim() : "";
+      if (!title) { showToast("先填片名再找图", "error"); return; }
+      const original = lookupBtn.textContent;
+      lookupBtn.disabled = true;
+      lookupBtn.textContent = "查找中…";
+      try {
+        const data = await api(`/api/poster?title=${encodeURIComponent(title)}`);
+        if (data && data.poster) {
+          posterInput.value = data.poster;
+          renderPosterPreview();
+          showToast(`已找到海报：${data.title || title}`);
+        } else {
+          showToast("没找到海报，可手动粘贴图片链接", "error");
+        }
+      } catch (err) {
+        showToast(`找图失败：${err.message}`, "error");
+      } finally {
+        lookupBtn.disabled = false;
+        lookupBtn.textContent = original;
+      }
+    });
+  }
   form.querySelector("[data-catalog-cancel]").addEventListener("click", renderCatalogList);
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -1248,6 +1290,7 @@ function openCatalogForm(entry) {
       note: String(fd.get("note") || "").trim(),
       featured: fd.get("featured") ? 1 : 0,
       latest: fd.get("latest") ? 1 : 0,
+      poster: String(fd.get("poster") || "").trim(),
       sort: fd.get("sort") ? Number(fd.get("sort")) : 0
     };
     const errBox = form.querySelector("#catalog-error");

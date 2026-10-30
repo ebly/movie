@@ -1373,3 +1373,9 @@ body.modal-open { overflow: hidden; }
 /* 片库：加入最热勾选 */
 .catalog-check { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
 .catalog-check input[type="checkbox"] { width: 15px; height: 15px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+
+/* 片库：海报选择与预览 */
+.poster-pick { display: flex; gap: 8px; align-items: center; }
+.poster-pick input { flex: 1; min-width: 0; }
+.poster-preview:not(:empty) { margin-top: 8px; }
+.poster-preview img { max-height: 120px; border-radius: 8px; border: 1px solid var(--line); }
