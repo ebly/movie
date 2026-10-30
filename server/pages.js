@@ -64,6 +64,10 @@ class PageRenderer {
   llms(origin) {
     return meta.llmsTxt(this.brand, this.repository.all(), origin);
   }
+
+  share(id, origin) {
+    return this.render(meta.shareMeta(id, this.brand, origin));
+  }
 }
 
 function originOf(req) {

@@ -146,6 +146,13 @@ describe("页面外壳与 SEO", () => {
     const home = await html("/");
     assert.match(home.body, /name="robots" content="max-snippet:-1, max-image-preview:large"/);
   });
+
+  test("分享页可打开且 noindex", async () => {
+    const page = await html("/share/hotd");
+    assert.equal(page.status, 200);
+    assert.match(page.body, /<title>片库分享 — /);
+    assert.match(page.body, /content="noindex,follow"/);
+  });
 });
 
 describe("TMDB 映射", () => {

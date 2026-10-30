@@ -241,6 +241,20 @@ function listMeta(brand, origin) {
   };
 }
 
+function shareMeta(id, brand, origin) {
+  const brandText = brandName(brand);
+  return {
+    status: 200,
+    meta: metaBlock({
+      title: `片库分享 — ${brandText}`,
+      description: `${brandText}片库分享：一条整理好的网盘资源，点击即可打开。`,
+      canonical: `${origin}/share/${encodeURIComponent(id)}`,
+      robots: "noindex,follow",
+      siteName: brandText
+    })
+  };
+}
+
 function homeMeta(brand, origin) {
   const brandText = brandName(brand);
   return {
@@ -457,6 +471,7 @@ module.exports = {
   searchMeta,
   listMeta,
   homeMeta,
+  shareMeta,
   homeBody,
   detailBody,
   sitemapXML,

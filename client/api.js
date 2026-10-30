@@ -59,6 +59,9 @@ const API = (() => {
     catalog(signal) {
       return request("/api/catalog", { signal });
     },
+    catalogItem(id, signal) {
+      return request(`/api/catalog/${encodeURIComponent(id)}`, { signal });
+    },
     search({ q = "", type = "全部", limit = 50, signal, suggest = false } = {}) {
       const params = new URLSearchParams();
       if (q) params.set("q", q);

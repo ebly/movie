@@ -34,6 +34,7 @@ test("页面路由都在 Worker 白名单里（否则拿不到注入的 meta）"
     "/list/",
     "/title/hotd",
     "/title/severance",
+    "/share/hotd",
     "/sitemap.xml",
     "/robots.txt",
     "/llms.txt",

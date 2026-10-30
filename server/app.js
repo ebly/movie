@@ -109,6 +109,16 @@ function createApp(options = {}) {
           }
           page = pages.detail(id, origin);
         }
+        const shareMatch = /^\/share\/([^/]+)\/?$/.exec(pathname);
+        if (shareMatch) {
+          let sid = shareMatch[1];
+          try {
+            sid = decodeURIComponent(sid);
+          } catch (err) {
+            sid = "";
+          }
+          page = pages.share(sid, origin);
+        }
       }
 
       if (page) {

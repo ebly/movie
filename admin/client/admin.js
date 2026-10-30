@@ -1158,6 +1158,7 @@ function renderCatalogList() {
         <span class="catalog-link" title="${esc(entry.link)}">${esc(entry.link)}</span>
       </div>
       <div class="catalog-actions">
+        <button class="btn btn-ghost btn-sm" type="button" data-catalog-share="${entry.id}">分享</button>
         <button class="btn btn-ghost btn-sm" type="button" data-catalog-edit="${entry.id}">编辑</button>
         <button class="btn btn-ghost btn-sm" type="button" data-catalog-del="${entry.id}">删除</button>
       </div>
@@ -1175,6 +1176,7 @@ function renderCatalogList() {
     openCatalogForm(entry || null);
   }));
   box.querySelectorAll("[data-catalog-del]").forEach((btn) => btn.addEventListener("click", () => deleteCatalog(Number(btn.dataset.catalogDel))));
+  box.querySelectorAll("[data-catalog-share]").forEach((btn) => btn.addEventListener("click", () => shareCatalog(Number(btn.dataset.catalogShare))));
 }
 
 function openCatalogForm(entry) {
@@ -1239,3 +1241,17 @@ async function deleteCatalog(id) {
     renderCatalogError(err.message);
   }
 }
+
+async function shareCatalog(id) {
+  if (!Number.isInteger(id) || id <= 0) return;
+  const base = String(FRONTEND || "").replace(/\/+$/, "");
+  const url = `${base}/share/${id}`;
+  try {
+    await navigator.clipboard.writeText(url);
+    showToast(`分享链接已复制：${url}`);
+  } catch (err) {
+    showToast("无法自动复制，请手动复制链接", "error");
+    window.prompt("复制分享链接：", url);
+  }
+}
+

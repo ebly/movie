@@ -1645,6 +1645,15 @@ async function route() {
     const token = state.routeToken + 1;
     await renderFavorites(params);
     if (token === state.routeToken) window.scrollTo(0, 0);
+  } else if (pathname.startsWith("/share/")) {
+    let id = "";
+    try {
+      id = decodeURIComponent(pathname.slice("/share/".length));
+    } catch (err) {
+      id = "";
+    }
+    await renderShare(id);
+    window.scrollTo(0, 0);
   } else if (pathname === "/") {
     renderHome();
     window.scrollTo(0, 0);
@@ -2070,3 +2079,64 @@ if (initialQuery && location.pathname === "/") {
 }
 
 init();
+
+/* ---------------- 片库分享页（/share/:id） ---------------- */
+
+function shareCardHTML(entry) {
+  const url = typeof entry.link === "string" ? entry.link : "";
+  const password = typeof entry.password === "string" ? entry.password : "";
+  const meta = [entry.year, entry.kind, entry.rating ? `★ ${Number(entry.rating).toFixed(1)}` : ""].filter(Boolean).map(esc).join(" · ");
+  return `<article class="share-card">
+    <div class="share-card-head"><h3>${esc(entry.title)}</h3><p>${meta}</p></div>
+    <div class="share-card-meta"><span class="tag">${esc(panTypeLabel(entry.pan))}</span></div>
+    <p class="share-card-url">${url ? esc(url) : "暂无链接"}</p>
+    ${password ? `<p class="share-card-code">提取码 <code>${esc(password)}</code></p>` : ""}
+    <div class="share-card-actions">
+      ${url ? `<a class="chip" href="${esc(url)}" target="_blank" rel="noopener noreferrer nofollow">打开链接</a>
+        <button class="quiet-btn" type="button" data-pan-copy="link" data-pan-url="${esc(url)}">复制链接</button>
+        ${password ? `<button class="quiet-btn" type="button" data-pan-copy="password" data-pan-url="${esc(url)}" data-pan-password="${esc(password)}">复制提取码</button>` : ""}` : ""}
+    </div>
+  </article>`;
+}
+
+async function renderShare(id) {
+  const token = state.routeToken;
+  document.title = `片库分享 — ${BRAND.name}`;
+  app.innerHTML = `<div class="view">
+    ${headerHTML({ compact: true })}
+    <main class="share-main">
+      <header class="share-top">
+        <span class="share-kicker">SHARED LIBRARY</span>
+        <h1>片库分享</h1>
+        <p>由 ${esc(BRAND.name)} 整理的一份网盘资源。</p>
+      </header>
+      <div id="share-body"><p class="share-loading">正在载入…</p></div>
+    </main>
+    ${footerHTML()}
+  </div>`;
+  updateScrollState();
+  let item = null;
+  let error = "";
+  let notFound = false;
+  try {
+    const data = await API.catalogItem(id);
+    item = data && data.item ? data.item : null;
+  } catch (err) {
+    if (err && err.status === 404) notFound = true;
+    else error = err && err.message ? err.message : "加载失败";
+  }
+  if (token !== state.routeToken) return;
+  const body = document.getElementById("share-body");
+  if (!body) return;
+  if (notFound || !item) {
+    body.innerHTML = `<div class="empty" role="status"><h3>分享不存在</h3><p>链接可能有误，或该分享已被移除。</p><a class="chip" href="/">回到首页</a></div>`;
+    return;
+  }
+  if (error) {
+    body.innerHTML = `<div class="empty" role="alert"><h3>加载失败</h3><p>${esc(error)}</p></div>`;
+    return;
+  }
+  body.innerHTML = `<div class="share-grid">${shareCardHTML(item)}</div>`;
+  updateScrollState();
+}
+

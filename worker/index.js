@@ -384,6 +384,15 @@ async function handleApi(ctx) {
     return sendJSON(ctx, 200, { items });
   }
 
+  const catalogItemMatch = /^\/api\/catalog\/(\d+)$/.exec(path);
+  if (catalogItemMatch) {
+    if (method !== "GET" && method !== "HEAD") return methodNotAllowed(ctx, "GET");
+    const id = Number(catalogItemMatch[1]);
+    const entry = (await catalogAll(ctx.env)).find((item) => item.id === id);
+    if (!entry) return sendError(ctx, 404, "not_found", "分享不存在");
+    return sendJSON(ctx, 200, { item: entry });
+  }
+
   if (path === "/api" || path === "/api/") {
     if (method !== "GET") return methodNotAllowed(ctx, "GET");
     return sendJSON(ctx, 200, API_INDEX);
@@ -849,6 +858,8 @@ async function handlePage(ctx, kind, id) {
     result = meta.searchMeta(ctx.url, BRAND, ctx.url.origin);
   } else if (kind === "list") {
     result = meta.listMeta(BRAND, ctx.url.origin);
+  } else if (kind === "share") {
+    result = meta.shareMeta(id, BRAND, ctx.url.origin);
   } else {
     const catalog = await getCatalog(ctx.env, ctx.url);
     result = meta.homeMeta(BRAND, ctx.url.origin);
@@ -957,6 +968,17 @@ export default {
           id = "";
         }
         return await handlePage(ctx, "detail", id);
+      }
+
+      const sharePage = /^\/share\/([^/]+)\/?$/.exec(path);
+      if (sharePage) {
+        let id = sharePage[1];
+        try {
+          id = decodeURIComponent(id);
+        } catch (err) {
+          id = "";
+        }
+        return await handlePage(ctx, "share", id);
       }
 
       return await handleStatic(ctx);
