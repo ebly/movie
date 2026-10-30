@@ -384,16 +384,23 @@ async function handleImageProxy(ctx) {
   if (!/^https?:$/.test(target.protocol) || !IMG_HOST.test(target.hostname)) {
     return sendText(ctx, 403, "403 · 仅允许豆瓣图片");
   }
-  let upstream;
-  try {
-    upstream = await fetch(target.href, {
-      headers: { Referer: "https://movie.douban.com/", Accept: "image/*,*/*" },
-      cf: { cacheEverything: true, cacheTtl: 86400 }
-    });
-  } catch (err) {
-    return sendText(ctx, 502, "502 · 图片获取失败");
+  let upstream = null;
+  for (const referer of ["https://movie.douban.com/", "https://www.douban.com/", "https://yinto.top/"]) {
+    try {
+      const response = await fetch(target.href, {
+        headers: { Referer: referer, Accept: "image/*,*/*" },
+        cf: { cacheEverything: true, cacheTtl: 86400 }
+      });
+      if (response.ok && /^image\//i.test(response.headers.get("content-type") || "")) {
+        upstream = response;
+        break;
+      }
+      if (response.status === 404) return sendText(ctx, 404, "图片不存在");
+    } catch (err) {
+      // 换下一个 Referer 再试
+    }
   }
-  if (!upstream.ok) return sendText(ctx, upstream.status === 404 ? 404 : 502, "图片获取失败");
+  if (!upstream) return sendText(ctx, 502, "502 · 图片获取失败");
   const contentType = upstream.headers.get("content-type") || "image/jpeg";
   if (!/^image\//i.test(contentType)) return sendText(ctx, 502, "非图片响应");
   return new Response(request.method === "HEAD" ? null : upstream.body, {
