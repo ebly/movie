@@ -1110,6 +1110,24 @@ const CATALOG_PANS = [
   ["xunlei", "迅雷"]
 ];
 
+// 各网盘分享链接的固定前缀：后台按所选类型自动带出，切换类型时跟着换。
+const PAN_PREFIX = {
+  quark: "https://pan.quark.cn/s/",
+  baidu: "https://pan.baidu.com/s/",
+  aliyun: "https://www.alipan.com/s/",
+  xunlei: "https://pan.xunlei.com/s/"
+};
+
+function swapPanPrefix(link, pan) {
+  const prefix = PAN_PREFIX[pan] || "";
+  const value = String(link || "").trim();
+  if (!value) return prefix;
+  for (const candidate of Object.values(PAN_PREFIX)) {
+    if (candidate && value.startsWith(candidate)) return prefix + value.slice(candidate.length);
+  }
+  return value;
+}
+
 function catalogPanLabel(pan) {
   const hit = CATALOG_PANS.find(([id]) => id === pan);
   return hit ? hit[1] : pan;
@@ -1154,6 +1172,7 @@ function renderCatalogList() {
       </div>
       <div class="catalog-meta">
         <span class="tag">${esc(catalogPanLabel(entry.pan))}</span>
+        ${entry.featured ? `<span class="tag amber">最热</span>` : ""}
         ${entry.password ? `<span>提取码 ${esc(entry.password)}</span>` : ""}
         <span class="catalog-link" title="${esc(entry.link)}">${esc(entry.link)}</span>
       </div>
@@ -1191,10 +1210,11 @@ function openCatalogForm(entry) {
       <div class="field"><label>类型</label><select name="kind"><option value="电影"${e.kind === "电影" ? " selected" : ""}>电影</option><option value="剧集"${e.kind === "剧集" ? " selected" : ""}>剧集</option></select></div>
       <div class="field"><label>评分（可选）</label><input name="rating" type="number" step="0.1" min="0" max="10" value="${e.rating || ""}"></div>
       <div class="field"><label>网盘类型 <span class="req">*</span></label><select name="pan">${CATALOG_PANS.map(([id, label]) => `<option value="${id}"${e.pan === id ? " selected" : ""}>${label}</option>`).join("")}</select></div>
-      <div class="field full"><label>分享链接 <span class="req">*</span></label><input name="link" type="url" placeholder="https://pan.quark.cn/s/..." value="${esc(e.link || "")}" required></div>
+      <div class="field full"><label>分享链接 <span class="req">*</span></label><input name="link" type="url" placeholder="${esc(PAN_PREFIX[e.pan] || "https://pan.quark.cn/s/")}" value="${esc(e.link || PAN_PREFIX[e.pan] || "")}" required></div>
       <div class="field"><label>提取码</label><input name="password" type="text" value="${esc(e.password || "")}"></div>
       <div class="field"><label>排序（小的在前）</label><input name="sort" type="number" value="${Number(e.sort) || 0}"></div>
       <div class="field full"><label>备注 <span class="optional">可选</span></label><input name="note" type="text" value="${esc(e.note || "")}"></div>
+      <div class="field full"><label class="catalog-check"><input type="checkbox" name="featured"${e.featured ? " checked" : ""}> 加入最热（勾选后出现在首页最热顶部）</label></div>
       <div class="field full" style="display:none" id="catalog-error"><p class="form-error show" style="margin:0"></p></div>
       <div class="field full" style="display:flex;gap:10px">
         <button class="btn btn-accent" type="submit">${entry ? "保存修改" : "添加"}</button>
@@ -1203,6 +1223,13 @@ function openCatalogForm(entry) {
     </form>
   </div>`;
   const form = document.getElementById("catalog-form");
+  const panSelect = form.querySelector('select[name="pan"]');
+  const linkInput = form.querySelector('input[name="link"]');
+  if (panSelect && linkInput) {
+    panSelect.addEventListener("change", () => {
+      linkInput.value = swapPanPrefix(linkInput.value, panSelect.value);
+    });
+  }
   form.querySelector("[data-catalog-cancel]").addEventListener("click", renderCatalogList);
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -1216,6 +1243,7 @@ function openCatalogForm(entry) {
       link: String(fd.get("link") || "").trim(),
       password: String(fd.get("password") || "").trim(),
       note: String(fd.get("note") || "").trim(),
+      featured: fd.get("featured") ? 1 : 0,
       sort: fd.get("sort") ? Number(fd.get("sort")) : 0
     };
     const errBox = form.querySelector("#catalog-error");

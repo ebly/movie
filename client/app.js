@@ -727,6 +727,7 @@ function mergeHomeFeeds(mine, douban, max) {
   };
   for (const item of mine) {
     if (out.length >= max) return out;
+    if (!item.featured) continue; // 只有勾选「加入最热」的片库条目才进最热
     const title = typeof item.title === "string" ? item.title.trim() : "";
     if (!title) continue;
     push({ id: `catalog-${item.id}`, title, year: item.year || null, type: item.kind || "电影", rating: item.rating || null, poster: "" });

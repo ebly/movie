@@ -1370,3 +1370,6 @@ body.modal-open { overflow: hidden; }
   .catalog-row { grid-template-columns: 1fr; }
   .catalog-actions { justify-self: start; }
 }
+/* 片库：加入最热勾选 */
+.catalog-check { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.catalog-check input[type="checkbox"] { width: 15px; height: 15px; margin: 0; accent-color: var(--accent); cursor: pointer; }
