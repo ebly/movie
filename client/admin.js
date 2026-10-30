@@ -361,6 +361,11 @@ async function route(routeOverride) {
   }
   const raw = typeof routeOverride === "string" ? routeOverride : currentRoute();
   window.scrollTo(0, 0);
+  // 线上目录是部署时打包的只读快照，写入会被主站拒绝（410），远程模式下不再提供片库页面。
+  if (state.mode === "remote" && (raw === "titles" || raw.startsWith("titles/"))) {
+    history.replaceState(null, "", "#/dashboard");
+    return renderDashboard();
+  }
   if (raw === "titles") return renderTitles();
   if (raw === "feedback") return renderFeedback();
   if (raw === "titles/new") return renderEditor(null);
@@ -397,7 +402,7 @@ function shell(active, title, content, actions = "") {
       <nav class="sb-nav">
         <div class="sb-label">工作台</div>
         ${navLink("dashboard", "#/dashboard", "数据看板", ICONS.dashboard)}
-        ${navLink("titles", "#/titles", "片库管理", ICONS.films)}
+        ${state.mode === "remote" ? "" : navLink("titles", "#/titles", "片库管理", ICONS.films)}
         ${navLink("feedback", "#/feedback", "用户反馈", ICONS.message)}
         <div class="sb-label">站点</div>
         <a class="sb-front" href="${FRONTEND}" target="_blank" rel="noopener">${ICONS.external}<span>查看前台</span></a>

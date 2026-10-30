@@ -1,0 +1,30 @@
+# 映途管理后台 — Cloudflare Workers 部署配置
+# 静态界面来自 ./client，数据全部反代到 https://yinto.top/api/admin/*。
+# 部署：在 movie 仓库（已装 wrangler）执行
+#   npx wrangler deploy --config ../movie-admin/wrangler.toml
+#
+# 2026-10-30：访问控制（Cloudflare Access / Basic Auth）还没配，先不下发路由，
+# admin.yinto.top 与 workers.dev 都不对外提供页面。配置好访问控制后取消下面两行注释再部署。
+
+name = "yingtu-admin"
+main = "worker/index.js"
+compatibility_date = "2024-12-01"
+
+workers_dev = false
+
+# routes = [
+#   { pattern = "admin.yinto.top", custom_domain = true }
+# ]
+
+[assets]
+directory = "./client"
+binding = "ASSETS"
+# 静态资源也要先过 Worker，否则访问控制（开关、Basic Auth）挡不住 index.html。
+run_worker_first = true
+
+[vars]
+# 访问控制就绪前保持 "false"：Worker 对任何请求都返回 404。
+ADMIN_ENABLED = "false"
+
+[observability]
+enabled = true

@@ -42,6 +42,41 @@ REMOTE_API_BASE=https://yingtu.你的域名.workers.dev npm start
 
 > 注意：远程模式的连接是**后台进程发起的**，所以这台机器必须能访问那个域名。本机 DNS 被污染或网络被封锁时（`*.workers.dev` 在国内就是这样），先绑一个自己的域名；如果走代理能通，用 `NODE_OPTIONS=--use-env-proxy` 启动，Node 会读取 `HTTPS_PROXY`（Node 22 起支持，实验性）。
 
+## 线上后台（admin.yinto.top）
+
+https://admin.yinto.top 是本项目的前端界面单独部署到 Cloudflare Workers 的版本，Worker 名 `yingtu-admin`。
+
+> **当前状态（2026-10-30）：已下线，整站返回 404。** 访问控制还没配好，`wrangler.toml` 里 `ADMIN_ENABLED = "false"`，Worker 对所有请求（包括静态页面）直接 404。配好访问控制后改成 `"true"` 再部署即可。custom domain 仍挂在 Worker 上，如果想让域名彻底不可解析，去控制台 Workers & Pages → `yingtu-admin` → Settings → Domains & Routes 把它删掉。
+
+- 静态界面来自本仓库的 `client/`，由 `[assets]` 托管。
+- 所有 `/api/*` 请求由 `worker/index.js` 反代到 `https://yinto.top/api/admin/*`，登录密码、会话、看板、反馈全部由主站 Worker 处理，这一层不复制业务逻辑，也没有自己的数据库。
+- 浏览器只和 `admin.yinto.top` 同源通信，所以不存在跨域问题；主站返回的 `yt_admin` Cookie 由代理原样回传，只保留这一个 Cookie，Cloudflare Access 的 `CF_Authorization` 不会转发给主站。
+- 写请求会把 `Origin` 改写成 `https://yinto.top` 以通过主站的同源校验，并把访客 IP 放进 `X-Forwarded-For` 供主站限流。
+- 线上目录是部署时打包的只读快照，因此远程模式下侧边栏不显示「片库管理」，`#/titles*` 会回到数据看板；片库仍在本地后台编辑后重新部署。
+- 响应带 CSP、`X-Frame-Options: DENY`、`X-Robots-Tag: noindex`，`/robots.txt` 全部 Disallow。
+
+部署（在 movie 仓库里执行，那里装了 wrangler）：
+
+```bash
+cd D:/workspace/movie
+npx wrangler deploy --config ../movie-admin/wrangler.toml
+```
+
+`wrangler.toml` 用 `custom_domain = true` 绑定 `admin.yinto.top`，首次部署会自动创建 DNS 记录和证书，无需手动加 CNAME。后台 Worker 不需要任何 secret：它不校验密码，只做代理。启用前把 `routes` 的注释取消，并把 `ADMIN_ENABLED` 改成 `"true"`。
+
+### 访问控制：Cloudflare Access
+
+子域名会进证书透明度日志，被扫到只是时间问题，所以除后台密码外还应加一层 Cloudflare Access（邮箱一次性验证码）：
+
+1. 打开 https://one.dash.cloudflare.com/ ，选对应账户，进入 **Access → Applications**。
+2. **Add an application → Self-hosted**。
+3. Application name 填 `映途后台`；Session Duration 选 `12 hours`；Application domain 选子域 `admin`、域 `yinto.top`，路径留空。
+4. 添加策略：Action `Allow`，Include → `Emails`，填你自己的邮箱。
+5. 确认 **Settings → Authentication → Login methods** 里 `One-time PIN` 已启用（默认启用）。
+6. 保存后打开 https://admin.yinto.top ，应先跳到 Cloudflare 的邮箱验证页，收到验证码后才看到后台密码登录页。
+
+Access 是独立于 `ADMIN_PASSWORD` 的第二道门：即使有人拿到了后台密码，没有你邮箱里的验证码也进不来。
+
 ## 快速开始
 
 环境要求：Node.js >= 18.16。零第三方依赖，不用 `npm install`。
