@@ -28,6 +28,7 @@ run_worker_first = [
   "/title/*",
   "/sitemap.xml",
   "/robots.txt",
+  "/llms.txt",
   "/api/*",
   "/go/*"
 ]

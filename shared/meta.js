@@ -44,7 +44,7 @@ function metaBlock({
     `<title>${esc(title)}</title>`,
     `<meta name="description" content="${esc(description)}">`,
     `<link rel="canonical" href="${esc(canonical)}">`,
-    robots ? `<meta name="robots" content="${esc(robots)}">` : "",
+    `<meta name="robots" content="${esc(robots || "max-snippet:-1, max-image-preview:large")}">`,
     `<meta property="og:type" content="${esc(ogType)}">`,
     `<meta property="og:site_name" content="${esc(siteName || "")}">`,
     `<meta property="og:locale" content="${LOCALE}">`,
@@ -69,6 +69,15 @@ function brandName(brand) {
 
 function websiteJsonLd(brand, origin) {
   const name = brandName(brand);
+  const org = {
+    "@type": "Organization",
+    name,
+    url: `${origin}/`,
+    logo: `${origin}${DEFAULT_IMAGE}`
+  };
+  if (brand && brand.tagline) org.description = brand.tagline;
+  // sameAs 需真实的外部主页（豆瓣/IMDb/微博等），配置了才输出，避免编造链接。
+  if (brand && Array.isArray(brand.sameAs) && brand.sameAs.length) org.sameAs = brand.sameAs;
   return {
     "@context": "https://schema.org",
     "@graph": [
@@ -86,12 +95,7 @@ function websiteJsonLd(brand, origin) {
           "query-input": "required name=search_term_string"
         }
       },
-      {
-        "@type": "Organization",
-        name,
-        url: `${origin}/`,
-        logo: `${origin}${DEFAULT_IMAGE}`
-      }
+      org
     ]
   };
 }
@@ -322,11 +326,24 @@ function detailBody(item, brand, providers) {
       return `<li>${esc(name)} — ${detail}</li>`;
     }).join("\n      ");
 
+  const providerNames = [...seen]
+    .map((pid) => (providers && providers[pid] ? providers[pid].name : null))
+    .filter(Boolean);
+  let lead = `《${item.title}》暂未收录可用的观看渠道。`;
+  if (providerNames.length) {
+    const where = providerNames.length > 3
+      ? `${providerNames.slice(0, 3).join("、")} 等平台`
+      : providerNames.join("、");
+    const gap = /[A-Za-z0-9+]$/.test(where) ? " " : "";
+    lead = `《${item.title}》${item.year ? `（${item.year}）` : ""}是${item.type}，可在 ${where}${gap}观看。`;
+  }
+
   return `<div class="seo-static">
     <nav class="seo-crumb"><a href="/">${esc(brandText)}</a> › <span>${esc(item.title)}</span></nav>
     <article>
       <h1>${esc(item.title)}${item.original ? `（${esc(item.original)}）` : ""}</h1>
       <p class="seo-meta">${metaLine(item)}</p>
+      <p class="seo-lead">${esc(lead)}</p>
       <p>${esc(item.synopsis || "")}</p>
       ${genres}
       ${offers ? `<h2>在哪里看</h2>\n      <ul class="seo-list">\n      ${offers}\n      </ul>` : ""}
@@ -368,6 +385,59 @@ function sitemapXML(items, origin) {
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n${body}\n</urlset>\n`;
 }
 
+/* ---------------- robots.txt 与 llms.txt ---------------- */
+
+function robotsTxt(origin) {
+  return [
+    "User-agent: *",
+    "Allow: /",
+    "Disallow: /list",
+    "",
+    "# 显式放行主流生成式 AI 检索/引用爬虫（希望限制训练可在 Cloudflare 或此处收紧）。",
+    "User-agent: GPTBot",
+    "User-agent: OAI-SearchBot",
+    "User-agent: ChatGPT-User",
+    "User-agent: ClaudeBot",
+    "User-agent: PerplexityBot",
+    "User-agent: Google-Extended",
+    "User-agent: Bingbot",
+    "User-agent: CCBot",
+    "User-agent: Bytespider",
+    "Allow: /",
+    "Disallow: /list",
+    "",
+    `Sitemap: ${origin}/sitemap.xml`,
+    ""
+  ].join("\n");
+}
+
+function llmsTxt(brand, items, origin) {
+  const name = brandName(brand);
+  const list = (Array.isArray(items) ? items : [])
+    .slice(0, 30)
+    .map((item) => {
+      const label = item.original ? `${item.title}（${item.original}）` : item.title;
+      const meta = [item.year, item.type].filter(Boolean).join(" ");
+      const note = item.synopsis ? `：${clip(item.synopsis, 60)}` : "：查看观看渠道";
+      return `- [${label}](${origin}/title/${encodeURIComponent(item.id)}): ${meta}${note}`;
+    })
+    .join("\n");
+  return `# ${name}${brand.latin ? `（${brand.latin}）` : ""}
+> ${brand.tagline || "影视索引"}。在 Netflix、Max、Apple TV+、Prime Video、Disney+ 与国内平台之间查找影视作品的观看方式。
+
+## 网站
+- [首页](${origin}/): 作品搜索与热门推荐
+- [站点地图](${origin}/sitemap.xml): 全部收录页面
+
+## 代表作品
+${list}
+
+## 说明
+- 本站只索引观看渠道与公开分享，不存储影片。
+- 评分、价格与可看状态为演示数据，以各平台为准。
+`;
+}
+
 /** 把 <!--SEO--> 占位替换成 meta 块；body 传入时替换 <!--SEO-BODY-->，否则保留原占位内容（通常是启动占位图）。 */
 function inject(template, meta, body) {
   let out = template;
@@ -390,5 +460,7 @@ module.exports = {
   homeBody,
   detailBody,
   sitemapXML,
+  robotsTxt,
+  llmsTxt,
   inject
 };

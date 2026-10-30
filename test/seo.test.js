@@ -120,6 +120,32 @@ describe("页面外壳与 SEO", () => {
     const xml = await response.text();
     assert.match(xml, /xmlns:image="http:\/\/www\.google\.com\/schemas\/sitemap-image\/1\.1"/);
   });
+
+  test("llms.txt 提供站点摘要与作品链接", async () => {
+    const response = await fetch(`${base}/llms.txt`);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("content-type") || "", /text\/plain/);
+    const body = await response.text();
+    assert.match(body, /^# 映途/);
+    assert.match(body, /\]\(http:\/\/127\.0\.0\.1:\d+\/title\//);
+    assert.match(body, /sitemap\.xml/);
+  });
+
+  test("robots 显式放行 AI 爬虫并指向 sitemap", async () => {
+    const body = await (await fetch(`${base}/robots.txt`)).text();
+    assert.match(body, /User-agent: GPTBot/);
+    assert.match(body, /User-agent: PerplexityBot/);
+    assert.match(body, /Sitemap: http:\/\/127\.0\.0\.1:\d+\/sitemap\.xml/);
+    assert.doesNotMatch(body, /\/admin/);
+  });
+
+  test("详情正文有一句话结论，可索引页放开 snippet", async () => {
+    const page = await html("/title/hotd");
+    assert.match(page.body, /class="seo-lead"/);
+    assert.match(page.body, /<h1>龙之家族/);
+    const home = await html("/");
+    assert.match(home.body, /name="robots" content="max-snippet:-1, max-image-preview:large"/);
+  });
 });
 
 describe("TMDB 映射", () => {

@@ -323,6 +323,13 @@ movie/
 - `og:image` 有海报时用 `poster`，没有时回落到 `${origin}/icon-512.png`（绝对地址）；`og:site_name`、`og:locale`、`twitter:*` 一并输出。
 - `client/index.html` 里的 CSS/JS 必须用绝对路径（`/styles.css`、`/app.js`）：子路径页面用相对路径会被解析成 `/title/styles.css`。
 
+### 生成式引擎优化（GEO）
+
+- `/llms.txt`：站点摘要 + 关键作品链接，供支持该约定的 LLM 工具读取。
+- `/robots.txt` 显式放行主流 AI 检索/引用爬虫（GPTBot、OAI-SearchBot、ChatGPT-User、ClaudeBot、PerplexityBot、Google-Extended、Bingbot、CCBot、Bytespider），仍屏蔽 `/list`。
+- 可索引页输出 `max-snippet:-1, max-image-preview:large`，鼓励大段摘录与图片预览；`Organization` 仅在 `config/brand.json` 配了 `sameAs`（真实外部主页）时才输出，避免编造链接。
+- 详情正文（`<!--SEO-BODY-->`）带「一句话结论」，如「《沙丘2》（2024）是电影，可在 Max、Prime Video、Apple TV+ 等平台观看。」，方便 AI 直接引用。
+
 ### 部署后主动提交给搜索引擎
 
 ```

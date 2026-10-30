@@ -754,6 +754,15 @@ async function handleSitemap(ctx) {
   return new Response(meta.sitemapXML(catalog.items, ctx.url.origin), { status: 200, headers });
 }
 
+async function handleLlms(ctx) {
+  const catalog = await getCatalog(ctx.env, ctx.url);
+  const headers = buildHeaders(ctx, 200, {
+    "Content-Type": "text/plain; charset=utf-8",
+    "Cache-Control": "public, max-age=3600"
+  });
+  return new Response(meta.llmsTxt(BRAND, catalog.items, ctx.url.origin), { status: 200, headers });
+}
+
 /* ---------------- 入口与路由表（顺序对齐 server/app.js） ---------------- */
 
 export default {
@@ -813,11 +822,11 @@ export default {
           "Content-Type": "text/plain; charset=utf-8",
           "Cache-Control": "public, max-age=3600"
         });
-        const body = `User-agent: *\nAllow: /\nDisallow: /list\n\nSitemap: ${ctx.url.origin}/sitemap.xml\n`;
-        return new Response(body, { status: 200, headers });
+        return new Response(meta.robotsTxt(ctx.url.origin), { status: 200, headers });
       }
 
       if (path === "/sitemap.xml") return await handleSitemap(ctx);
+      if (path === "/llms.txt") return await handleLlms(ctx);
       if (path === "/" || path === "/index.html") return await handlePage(ctx, "home");
       if (path === "/search" || path === "/search/") return await handlePage(ctx, "search");
       if (path === "/list" || path === "/list/") return await handlePage(ctx, "list");

@@ -125,7 +125,7 @@ function createApp(options = {}) {
           "Content-Type": "text/plain; charset=utf-8",
           "Cache-Control": "public, max-age=3600"
         });
-        res.end(`User-agent: *\nAllow: /\nDisallow: /list\n\nSitemap: ${origin}/sitemap.xml\n`);
+        res.end(pages.robots(origin));
         return;
       }
 
@@ -136,6 +136,16 @@ function createApp(options = {}) {
           "Cache-Control": "public, max-age=3600"
         });
         res.end(req.method === "HEAD" ? undefined : pages.sitemap(origin));
+        return;
+      }
+
+      if (pathname === "/llms.txt") {
+        applySecurityHeaders(res);
+        res.writeHead(200, {
+          "Content-Type": "text/plain; charset=utf-8",
+          "Cache-Control": "public, max-age=3600"
+        });
+        res.end(req.method === "HEAD" ? undefined : pages.llms(origin));
         return;
       }
 

@@ -1621,6 +1621,7 @@ body.is-routing .view { opacity: .55; transition: opacity .12s ease; }
 .seo-static a:hover { text-decoration: underline; }
 .seo-crumb { font-size: 13px; color: var(--muted); margin-bottom: 18px; }
 .seo-meta { font-size: 13px; letter-spacing: .02em; color: var(--muted); }
+.seo-lead { color: var(--text); font-weight: 500; }
 .seo-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .seo-list li { padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); font-size: 14px; }
 .seo-links { margin-top: 22px; font-size: 14px; }

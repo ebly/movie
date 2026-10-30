@@ -56,6 +56,14 @@ class PageRenderer {
   sitemap(origin) {
     return meta.sitemapXML(this.repository.all(), origin);
   }
+
+  robots(origin) {
+    return meta.robotsTxt(origin);
+  }
+
+  llms(origin) {
+    return meta.llmsTxt(this.brand, this.repository.all(), origin);
+  }
 }
 
 function originOf(req) {
