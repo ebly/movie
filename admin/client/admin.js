@@ -339,6 +339,7 @@ async function route(routeOverride) {
   const raw = typeof routeOverride === "string" ? routeOverride : currentRoute();
   window.scrollTo(0, 0);
   if (raw === "feedback") return renderFeedback();
+  if (raw === "catalog") return renderCatalog();
   return renderDashboard();
 }
 
@@ -353,7 +354,7 @@ function shell(active, title, content, actions = "") {
   $("#admin").innerHTML = `<div class="shell">
     <aside class="sidebar">
       <a class="sb-brand" href="#/dashboard">${mark()}<span class="word">${BRAND.name}</span><span class="tag">ADMIN</span></a>
-      <div class="sb-tag">行为 · 反馈</div>
+      <div class="sb-tag">行为 · 反馈 · 片库</div>
       <div class="sb-mode ${state.mode === "remote" ? "is-remote" : ""}" title="${state.mode === "remote" ? `数据来自 ${esc(state.remoteBase || "")}` : "数据来自本地 data/ 目录"}">
         ${state.mode === "remote" ? "线上 D1" : "本地文件"}
       </div>
@@ -361,6 +362,7 @@ function shell(active, title, content, actions = "") {
         <div class="sb-label">工作台</div>
         ${navLink("dashboard", "#/dashboard", "数据看板", ICONS.dashboard)}
         ${navLink("feedback", "#/feedback", "用户反馈", ICONS.message)}
+        ${navLink("catalog", "#/catalog", "片库管理", ICONS.film)}
         <div class="sb-label">站点</div>
         <a class="sb-front" href="${FRONTEND}" target="_blank" rel="noopener">${ICONS.external}<span>查看前台</span></a>
       </nav>
@@ -1098,3 +1100,142 @@ function renderListModal() {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && listModal && !listModal.hidden) closeListModal();
 });
+
+/* ---------------- catalog（片库管理） ---------------- */
+
+const CATALOG_PANS = [
+  ["quark", "夸克"],
+  ["baidu", "百度网盘"],
+  ["aliyun", "阿里云盘"],
+  ["xunlei", "迅雷"]
+];
+
+function catalogPanLabel(pan) {
+  const hit = CATALOG_PANS.find(([id]) => id === pan);
+  return hit ? hit[1] : pan;
+}
+
+async function renderCatalog() {
+  shell("catalog", "片库管理", `${pageHead({
+    eyebrow: "Catalog",
+    title: "片库管理",
+    sub: "你自己维护的资源：首页优先展示，搜索同名影片时置顶。"
+  })}<div id="catalog-main"><div class="panel panel-pad"><div class="title-loading">正在载入片库…</div></div></div>`, "");
+  await loadCatalog();
+}
+
+async function loadCatalog() {
+  try {
+    const data = await api("/api/catalog");
+    state.catalog = Array.isArray(data.items) ? data.items : [];
+    renderCatalogList();
+  } catch (err) {
+    renderCatalogError(err.message);
+  }
+}
+
+function renderCatalogError(message) {
+  const box = document.getElementById("catalog-main");
+  if (!box) return;
+  box.innerHTML = `<div class="panel panel-pad">${emptyState(message || "片库加载失败", "请确认登录会话有效后重试。")}<div class="head-actions" style="justify-content:center;margin-top:12px"><button class="btn btn-ghost" type="button" data-catalog-reload>重试</button></div></div>`;
+  const retry = box.querySelector("[data-catalog-reload]");
+  if (retry) retry.addEventListener("click", loadCatalog);
+}
+
+function renderCatalogList() {
+  const box = document.getElementById("catalog-main");
+  if (!box) return;
+  const items = state.catalog || [];
+  const rows = items.length ? items.map((entry) => `
+    <div class="catalog-row">
+      <div class="catalog-main-cell">
+        <strong>${esc(entry.title)}</strong>
+        <small>${[entry.year, entry.kind, entry.rating ? `★ ${entry.rating}` : ""].filter(Boolean).map(esc).join(" · ")}${entry.note ? ` · ${esc(entry.note)}` : ""}</small>
+      </div>
+      <div class="catalog-meta">
+        <span class="tag">${esc(catalogPanLabel(entry.pan))}</span>
+        ${entry.password ? `<span>提取码 ${esc(entry.password)}</span>` : ""}
+        <span class="catalog-link" title="${esc(entry.link)}">${esc(entry.link)}</span>
+      </div>
+      <div class="catalog-actions">
+        <button class="btn btn-ghost btn-sm" type="button" data-catalog-edit="${entry.id}">编辑</button>
+        <button class="btn btn-ghost btn-sm" type="button" data-catalog-del="${entry.id}">删除</button>
+      </div>
+    </div>`).join("") : `<div class="rank-empty">还没有片库影片，点右上「新增影片」添加。</div>`;
+  box.innerHTML = `<div class="panel panel-pad">
+    <div class="panel-head">
+      <div><h2>影片列表</h2><p>共 ${items.length} 部，按排序值升序；首页优先展示这些影片。</p></div>
+      <button class="btn btn-accent" type="button" data-catalog-new>新增影片</button>
+    </div>
+    <div class="catalog-list">${rows}</div>
+  </div>`;
+  box.querySelector("[data-catalog-new]").addEventListener("click", () => openCatalogForm(null));
+  box.querySelectorAll("[data-catalog-edit]").forEach((btn) => btn.addEventListener("click", () => {
+    const entry = items.find((e) => String(e.id) === btn.dataset.catalogEdit);
+    openCatalogForm(entry || null);
+  }));
+  box.querySelectorAll("[data-catalog-del]").forEach((btn) => btn.addEventListener("click", () => deleteCatalog(Number(btn.dataset.catalogDel))));
+}
+
+function openCatalogForm(entry) {
+  const box = document.getElementById("catalog-main");
+  if (!box) return;
+  const e = entry || { title: "", year: "", kind: "电影", rating: "", pan: "quark", link: "", password: "", note: "", sort: 0 };
+  box.innerHTML = `<div class="panel panel-pad">
+    <div class="panel-head"><div><h2>${entry ? "编辑影片" : "新增影片"}</h2><p>片库影片会在首页优先展示；搜索同名时置顶。</p></div></div>
+    <form id="catalog-form" class="form-grid">
+      <div class="field full"><label>片名 <span class="req">*</span></label><input name="title" type="text" value="${esc(e.title)}" required></div>
+      <div class="field"><label>年份</label><input name="year" type="number" min="1900" max="2099" value="${e.year || ""}"></div>
+      <div class="field"><label>类型</label><select name="kind"><option value="电影"${e.kind === "电影" ? " selected" : ""}>电影</option><option value="剧集"${e.kind === "剧集" ? " selected" : ""}>剧集</option></select></div>
+      <div class="field"><label>评分（可选）</label><input name="rating" type="number" step="0.1" min="0" max="10" value="${e.rating || ""}"></div>
+      <div class="field"><label>网盘类型 <span class="req">*</span></label><select name="pan">${CATALOG_PANS.map(([id, label]) => `<option value="${id}"${e.pan === id ? " selected" : ""}>${label}</option>`).join("")}</select></div>
+      <div class="field full"><label>分享链接 <span class="req">*</span></label><input name="link" type="url" placeholder="https://pan.quark.cn/s/..." value="${esc(e.link || "")}" required></div>
+      <div class="field"><label>提取码</label><input name="password" type="text" value="${esc(e.password || "")}"></div>
+      <div class="field"><label>排序（小的在前）</label><input name="sort" type="number" value="${Number(e.sort) || 0}"></div>
+      <div class="field full"><label>备注 <span class="optional">可选</span></label><input name="note" type="text" value="${esc(e.note || "")}"></div>
+      <div class="field full" style="display:none" id="catalog-error"><p class="form-error show" style="margin:0"></p></div>
+      <div class="field full" style="display:flex;gap:10px">
+        <button class="btn btn-accent" type="submit">${entry ? "保存修改" : "添加"}</button>
+        <button class="btn btn-ghost" type="button" data-catalog-cancel>取消</button>
+      </div>
+    </form>
+  </div>`;
+  const form = document.getElementById("catalog-form");
+  form.querySelector("[data-catalog-cancel]").addEventListener("click", renderCatalogList);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const fd = new FormData(form);
+    const payload = {
+      title: String(fd.get("title") || "").trim(),
+      year: fd.get("year") ? Number(fd.get("year")) : null,
+      kind: fd.get("kind") === "剧集" ? "剧集" : "电影",
+      rating: fd.get("rating") ? Number(fd.get("rating")) : null,
+      pan: String(fd.get("pan") || "quark"),
+      link: String(fd.get("link") || "").trim(),
+      password: String(fd.get("password") || "").trim(),
+      note: String(fd.get("note") || "").trim(),
+      sort: fd.get("sort") ? Number(fd.get("sort")) : 0
+    };
+    const errBox = form.querySelector("#catalog-error");
+    const errText = errBox.querySelector(".form-error");
+    try {
+      if (entry) await api(`/api/catalog/${entry.id}`, { method: "PUT", body: payload });
+      else await api("/api/catalog", { method: "POST", body: payload });
+      await loadCatalog();
+    } catch (err) {
+      errBox.style.display = "";
+      errText.textContent = err.message;
+    }
+  });
+}
+
+async function deleteCatalog(id) {
+  if (!Number.isInteger(id) || id <= 0) return;
+  if (!confirm("确定删除这条片库影片？")) return;
+  try {
+    await api(`/api/catalog/${id}`, { method: "DELETE" });
+    await loadCatalog();
+  } catch (err) {
+    renderCatalogError(err.message);
+  }
+}

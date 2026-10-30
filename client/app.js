@@ -695,6 +695,34 @@ function paletteFor(seed) {
   return HOME_PALETTES[hash % HOME_PALETTES.length];
 }
 
+/** 片名归一化：去空格、书名号、常见标点，用于片库与豆瓣同名判重。 */
+function titleKey(value) {
+  return String(value || "").toLowerCase().replace(/[\s《》〈〉「」『』【】\[\]（）()：:·.,，。!！?？\-_—\/\\]/g, "");
+}
+
+/** 首页 11 部：片库在前，豆瓣「最新」补足；按归一化片名去重，片库优先。 */
+function mergeHomeFeeds(mine, douban, max) {
+  const out = [];
+  const seen = new Set();
+  const push = (entry) => {
+    const key = titleKey(entry.title);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    out.push(entry);
+  };
+  for (const item of mine) {
+    if (out.length >= max) return out;
+    const title = typeof item.title === "string" ? item.title.trim() : "";
+    if (!title) continue;
+    push({ id: `catalog-${item.id}`, title, year: item.year || null, type: item.kind || "电影", rating: item.rating || null, poster: "" });
+  }
+  for (const item of douban) {
+    if (out.length >= max) return out;
+    if (item && item.title) push(item);
+  }
+  return out;
+}
+
 /** 首页右侧只展示豆瓣「最新」榜 10 部；「大家都在搜」另行取热门榜片名。 */
 let latestCache = null;
 // 热门榜片名池：[{ title, hue }]；先显示 10 个，点箭头再追加 10 个
@@ -779,20 +807,29 @@ async function loadLatestList() {
     revealFeatured();
     return;
   }
-  let items = readDoubanCache("latest").slice(0, 11);
+  let douban = readDoubanCache("latest").slice(0, 11);
   try {
     const data = await API.doubanList({ kind: "latest", limit: 11 });
     if (location.pathname !== "/") return;
     const fresh = (data.items || []).filter((item) => item && item.title).slice(0, 11);
     if (fresh.length >= 2) {
-      items = fresh;
+      douban = fresh;
       writeDoubanCache("latest", fresh);
     }
   } catch (err) {
     // 豆瓣拿不到就用上次成功的缓存，缓存也空就整块不显示
   }
-  if (items.length < 2) return;
-  const html = featureGroupHTML(items.map((item) => ({
+  let mine = [];
+  try {
+    const cat = await API.catalog();
+    mine = (cat && Array.isArray(cat.items)) ? cat.items : [];
+  } catch (err) {
+    // 片库拿不到就只用豆瓣榜
+  }
+  if (location.pathname !== "/") return;
+  const merged = mergeHomeFeeds(mine, douban, 11);
+  if (merged.length < 2) return;
+  const html = featureGroupHTML(merged.map((item) => ({
     ...item,
     href: searchURL(item.title),
     art: paletteFor(item.title)
@@ -1125,11 +1162,21 @@ async function renderPanResults(params, { reload = false } = {}) {
   }
   if (controller.signal.aborted || token !== state.routeToken) return;
   setRouteBusy(false);
-  const items = data.items;
+  // 我的资源：只在第一页置顶，样式与 PanSou 卡片一致，用户分不出归属。
+  const mine = (data.offset === 0 && Array.isArray(data.mine) ? data.mine : []).map((entry) => ({
+    id: `catalog-${entry.id}`,
+    type: entry.pan,
+    url: entry.link,
+    password: entry.password || "",
+    sources: [],
+    datetime: entry.updatedAt || null,
+    title: entry.note || entry.title
+  }));
+  const items = [...mine, ...data.items];
   // 收藏按钮只拿到 id，点的时候从这里取完整记录
   items.forEach((item) => item.id && state.panById.set(item.id, item));
   const summary = [
-    t("pan.sumTotal", { type: panTypeLabel(type), total: data.total }),
+    t("pan.sumTotal", { type: panTypeLabel(type), total: data.total + mine.length }),
     t("pan.sumPage", { n: items.length }),
     data.cached ? t("pan.sumCached") : t("pan.sumUncached")
   ];

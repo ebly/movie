@@ -56,6 +56,9 @@ const API = (() => {
     doubanList({ kind = "hot", limit = 11, signal } = {}) {
       return request(`/api/douban/list?kind=${encodeURIComponent(kind)}&limit=${encodeURIComponent(limit)}`, { signal });
     },
+    catalog(signal) {
+      return request("/api/catalog", { signal });
+    },
     search({ q = "", type = "全部", limit = 50, signal, suggest = false } = {}) {
       const params = new URLSearchParams();
       if (q) params.set("q", q);

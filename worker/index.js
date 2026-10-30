@@ -57,6 +57,7 @@ async function handleQuarkSearch(ctx) {
     const result = await pansouClients.get(ctx.env).search(ctx.url.searchParams);
     const query = String(ctx.url.searchParams.get("q") || "").trim();
     if (query && ctx.env.DB) {
+      result.mine = await catalogMatch(ctx.env, query, result.type);
       const visitor = visitorId(ctx);
       record(ctx.execution, createAnalytics({ db: ctx.env.DB }).recordPanSearch({
         query,
@@ -292,6 +293,69 @@ function record(execution, promise) {
 }
 
 /** 每个请求准备一次数据层（目录一次性载入内存，供打分/筛选/related 复用）。 */
+/* ---------------- 我的资源（catalog，D1） ---------------- */
+
+const CATALOG_PANS = new Set(["quark", "baidu", "aliyun", "xunlei"]);
+
+function titleKey(value) {
+  return String(value || "").toLowerCase().replace(/[\s《》〈〉「」『』【】\[\]（）()：:·.,，。!！?？\-_—\/\\]/g, "");
+}
+
+function catalogFromRow(row) {
+  const rating = Number(row.rating);
+  return {
+    id: row.id,
+    title: row.title,
+    year: row.year || null,
+    kind: row.kind || "电影",
+    rating: Number.isFinite(rating) && rating > 0 ? rating : null,
+    pan: row.pan || "quark",
+    link: row.link || "",
+    password: row.password || "",
+    note: row.note || "",
+    updatedAt: row.updated_at || null
+  };
+}
+
+async function catalogAll(env) {
+  if (!env.DB) return [];
+  const { results } = await env.DB.prepare("SELECT * FROM catalog ORDER BY sort ASC, id ASC").all();
+  return (results || []).map(catalogFromRow);
+}
+
+async function catalogMatch(env, query, pan) {
+  const key = titleKey(query);
+  if (!key) return [];
+  const wanted = pan ? String(pan) : "";
+  const all = await catalogAll(env);
+  return all.filter((entry) => titleKey(entry.title) === key && (!wanted || entry.pan === wanted));
+}
+
+function catalogInput(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new HttpError(422, "invalid_body", "请求体格式不正确");
+  }
+  const title = cleanText(body.title, 120);
+  if (!title) throw new HttpError(422, "invalid_title", "片名不能为空");
+  const link = String(body.link || "").trim();
+  if (!/^https?:\/\/\S+$/i.test(link)) throw new HttpError(422, "invalid_link", "链接必须是 http(s) 地址");
+  const pan = CATALOG_PANS.has(String(body.pan)) ? String(body.pan) : "quark";
+  const year = Number(body.year);
+  const rating = Number(body.rating);
+  const sort = Number(body.sort);
+  return {
+    title,
+    year: Number.isInteger(year) && year > 1900 && year < 2100 ? year : null,
+    kind: body.kind === "剧集" ? "剧集" : "电影",
+    rating: Number.isFinite(rating) && rating > 0 ? Math.round(rating * 10) / 10 : null,
+    pan,
+    link,
+    password: cleanText(body.password, 64),
+    note: cleanText(body.note, 200),
+    sort: Number.isFinite(sort) ? Math.trunc(sort) : 0
+  };
+}
+
 async function prepare(ctx) {
   const catalog = await getCatalog(ctx.env, ctx.url);
   ctx.store = createStore({ providers: PROVIDERS, catalog });
@@ -307,6 +371,18 @@ async function handleApi(ctx) {
   const { url, request, store, analytics, feedback } = ctx;
   const path = url.pathname;
   const method = request.method;
+
+  if (path === "/api/catalog" || path === "/api/catalog/") {
+    if (method !== "GET" && method !== "HEAD") return methodNotAllowed(ctx, "GET");
+    const items = (await catalogAll(ctx.env)).map((entry) => ({
+      id: entry.id,
+      title: entry.title,
+      year: entry.year,
+      kind: entry.kind,
+      rating: entry.rating
+    }));
+    return sendJSON(ctx, 200, { items });
+  }
 
   if (path === "/api" || path === "/api/") {
     if (method !== "GET") return methodNotAllowed(ctx, "GET");
@@ -637,6 +713,47 @@ async function handleAdmin(ctx) {
       usingDefaultPassword: auth.usingDefaultPassword,
       generatedAt: new Date().toISOString()
     });
+  }
+
+  const catalogIdMatch = /^\/api\/admin\/catalog\/(\d+)$/.exec(path);
+
+  if (path === "/api/admin/catalog") {
+    if (method === "GET") {
+      return sendJSON(ctx, 200, { items: await catalogAll(ctx.env) });
+    }
+    if (method === "POST") {
+      const body = await readJSON(request, { limit: 8 * 1024 });
+      const input = catalogInput(body);
+      const now = new Date().toISOString();
+      const res = await ctx.env.DB.prepare(
+        "INSERT INTO catalog (title, year, kind, rating, pan, link, password, note, sort, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      ).bind(input.title, input.year, input.kind, input.rating, input.pan, input.link, input.password, input.note, input.sort, now, now).run();
+      const id = res.meta && res.meta.last_row_id;
+      const created = (await catalogAll(ctx.env)).find((entry) => entry.id === id) || null;
+      return sendJSON(ctx, 201, { item: created });
+    }
+    return methodNotAllowed(ctx, "GET, POST");
+  }
+
+  if (catalogIdMatch) {
+    const id = Number(catalogIdMatch[1]);
+    if (method === "PUT") {
+      const body = await readJSON(request, { limit: 8 * 1024 });
+      const input = catalogInput(body);
+      const now = new Date().toISOString();
+      const res = await ctx.env.DB.prepare(
+        "UPDATE catalog SET title = ?, year = ?, kind = ?, rating = ?, pan = ?, link = ?, password = ?, note = ?, sort = ?, updated_at = ? WHERE id = ?"
+      ).bind(input.title, input.year, input.kind, input.rating, input.pan, input.link, input.password, input.note, input.sort, now, id).run();
+      if (!res.meta || !res.meta.changes) return sendError(ctx, 404, "not_found", "条目不存在");
+      const updated = (await catalogAll(ctx.env)).find((entry) => entry.id === id) || null;
+      return sendJSON(ctx, 200, { item: updated });
+    }
+    if (method === "DELETE") {
+      const res = await ctx.env.DB.prepare("DELETE FROM catalog WHERE id = ?").bind(id).run();
+      if (!res.meta || !res.meta.changes) return sendError(ctx, 404, "not_found", "条目不存在");
+      return sendJSON(ctx, 200, { ok: true });
+    }
+    return methodNotAllowed(ctx, "PUT, DELETE");
   }
 
   return sendError(ctx, 404, "not_found", "接口不存在");

@@ -120,3 +120,12 @@ npm test
 - 前台项目里已经没有 `client/admin/`、`server/admin.js`、`server/adminAuth.js`，`/admin/*` 和 `/api/admin/*` 在本地 Node 服务上一律 404。
 - 生产部署（Cloudflare Workers）保留 `/api/admin/*` 作为后台 API，供单独部署的后台调用；对应界面从本项目管理。
 - `config/brand.json` 两边各有一份，改品牌文案要同步改两处。
+
+## 片库管理（我的资源）
+
+侧边栏「片库管理」维护自己的网盘资源，存在线上 D1 的 `catalog` 表（需先在仓库根执行 `npm run db:migrate:remote` 应用 `0008_catalog.sql`）。
+
+- 首页 11 个推荐位：片库优先，不足时用豆瓣「最新」补足；按片名去重，片库优先。
+- 搜索同名影片时，片库资源会和 PanSou 结果混排并**置顶**，样式一致。
+- 接口（经 BFF 转发到主站 `/api/admin/catalog*`）：`GET/POST /api/catalog`、`PUT/DELETE /api/catalog/:id`。
+
