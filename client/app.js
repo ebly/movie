@@ -1235,7 +1235,7 @@ async function renderPanResults(params, { reload = false } = {}) {
         ${page > 1 ? `<div class="chips"><a class="chip" href="${esc(searchURL(q, type))}">${t("pan.backFirst")}</a></div>` : ""}
         ${page === 1 ? emptyFallbackHTML() : ""}
       </div>`}
-    ${panPaginationHTML(q, type, data)}`;
+    ${items.length ? panPaginationHTML(q, type, data) : ""}`;
   app.innerHTML = panViewHTML(q, type, body);
   hydrateSearchFallback();
   updateScrollState();
