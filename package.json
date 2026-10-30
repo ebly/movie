@@ -17,6 +17,10 @@
     "db:migrate:remote": "wrangler d1 migrations apply yingtu-db --remote",
     "pinyin:build": "node scripts/build-pinyin.mjs",
     "deploy": "node scripts/sync-catalog.mjs && wrangler deploy",
+    "deploy:seo": "npm run deploy && npm run seo:ping",
+    "seo:init-key": "node scripts/ping-search-engines.mjs --init-key",
+    "seo:check": "node scripts/ping-search-engines.mjs --check",
+    "seo:ping": "node scripts/ping-search-engines.mjs",
     "preflight": "node scripts/preflight.mjs",
     "smoke:worker": "node --experimental-sqlite --no-warnings scripts/worker-smoke.mjs",
     "admin:local": "node admin-local/server.mjs"

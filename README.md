@@ -323,6 +323,22 @@ movie/
 - `og:image` 有海报时用 `poster`，没有时回落到 `${origin}/icon-512.png`（绝对地址）；`og:site_name`、`og:locale`、`twitter:*` 一并输出。
 - `client/index.html` 里的 CSS/JS 必须用绝对路径（`/styles.css`、`/app.js`）：子路径页面用相对路径会被解析成 `/title/styles.css`。
 
+### 部署后主动提交给搜索引擎
+
+```
+npm run seo:init-key    # 首次：生成 IndexNow 密钥文件到 client/（随部署上线到 /<密钥>.txt）
+npm run deploy          # 部署（会把密钥文件一起发布）
+npm run seo:ping        # 读取线上 sitemap，把全部 URL 推给 IndexNow（Bing 等）与百度
+npm run seo:check       # 只读：抓 sitemap 并列出 URL，不提交
+```
+
+- **IndexNow**：一次 POST 通知 Bing / Yandex / Seznam / Naver，密钥文件用来验证站点归属；`deploy:seo` = 部署后自动 ping。
+- **百度**：设置 `BAIDU_TOKEN`（搜索资源平台推送 token）后自动推送到「普通收录」。
+- **Google**：已停用 sitemap ping，在 Search Console 提交一次 `sitemap.xml` 即可长期自动抓取。
+- 站点根地址默认 `https://yinto.top`，换域名用 `SITE_URL=https://你的域名 npm run seo:ping`。
+
+（注意：`deploy` 本身不会自动 ping，避免误触外部接口；需要时用 `npm run deploy:seo`。）
+
 ## API
 
 服务端只使用 Node 内置模块（`http`、`fs`、`crypto`），便于直接运行和审阅。
