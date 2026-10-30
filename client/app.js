@@ -715,7 +715,7 @@ function titleKey(value) {
   return String(value || "").toLowerCase().replace(/[\s《》〈〉「」『』【】\[\]（）()：:·.,，。!！?？\-_—\/\\]/g, "");
 }
 
-/** 首页 11 部：片库在前，豆瓣「最新」补足；按归一化片名去重，片库优先。 */
+/** 首页 11 部：片库优先、豆瓣补足；按片名去重、片库优先；有海报的排前面。 */
 function mergeHomeFeeds(mine, douban, max) {
   const out = [];
   const seen = new Set();
@@ -726,17 +726,17 @@ function mergeHomeFeeds(mine, douban, max) {
     out.push(entry);
   };
   for (const item of mine) {
-    if (out.length >= max) return out;
     if (!item.featured) continue; // 只有勾选「加入最热」的片库条目才进最热
     const title = typeof item.title === "string" ? item.title.trim() : "";
     if (!title) continue;
     push({ id: `catalog-${item.id}`, title, year: item.year || null, type: item.kind || "电影", rating: item.rating || null, poster: item.poster || "" });
   }
   for (const item of douban) {
-    if (out.length >= max) return out;
     if (item && item.title) push(item);
   }
-  return out;
+  // 有海报的排最前面（稳定排序，同组内仍是片库优先、豆瓣次之），再截到 max 条。
+  out.sort((a, b) => (a.poster ? 0 : 1) - (b.poster ? 0 : 1));
+  return out.slice(0, max);
 }
 
 /** 首页右侧只展示豆瓣「最新」榜 10 部；「大家都在搜」另行取热门榜片名。 */
