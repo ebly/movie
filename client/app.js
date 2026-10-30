@@ -527,9 +527,14 @@ function imageSrc(url, small) {
   if (typeof url !== "string" || !url) return "";
   try {
     const parsed = new URL(url, location.origin);
-    // 豆瓣图片有防盗链，统一走 Worker 代理（带豆瓣 Referer）。
-    if (/(^|\.)doubanio\.com$/i.test(parsed.hostname)) {
+    const host = parsed.hostname;
+    // 豆瓣图片有防盗链；TMDB 图国内常被墙——都统一走 Worker 代理（我们域名 + 边缘缓存）。
+    if (/(^|\.)doubanio\.com$/i.test(host)) {
       const href = small ? parsed.href.replace("/l_ratio_poster/", "/m_ratio_poster/") : parsed.href;
+      return `/api/img?src=${encodeURIComponent(href)}`;
+    }
+    if (/(^|\.)tmdb\.org$/i.test(host)) {
+      const href = small ? parsed.href.replace("/t/p/w500/", "/t/p/w342/") : parsed.href;
       return `/api/img?src=${encodeURIComponent(href)}`;
     }
     return url;

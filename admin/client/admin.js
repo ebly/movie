@@ -1133,6 +1133,21 @@ function catalogPanLabel(pan) {
   return hit ? hit[1] : pan;
 }
 
+/** 后台缩略图：豆瓣/TMDB 图走线上 /api/img 代理（后台在本地、国内环境也能显示）。 */
+function adminImageSrc(url) {
+  if (typeof url !== "string" || !url) return "";
+  try {
+    const parsed = new URL(url, location.origin);
+    if (/(^|\.)(doubanio\.com|tmdb\.org)$/i.test(parsed.hostname)) {
+      const base = String((state.mode === "remote" && state.remoteBase) ? state.remoteBase : "").replace(/\/+$/, "");
+      if (base) return `${base}/api/img?src=${encodeURIComponent(parsed.href)}`;
+    }
+    return url;
+  } catch (err) {
+    return url;
+  }
+}
+
 async function renderCatalog() {
   shell("catalog", "片库管理", `${pageHead({
     eyebrow: "Catalog",
@@ -1167,7 +1182,7 @@ function renderCatalogList() {
   const rows = items.length ? items.map((entry) => `
     <div class="catalog-row">
       <div class="catalog-main-cell">
-        ${entry.poster ? `<img class="catalog-thumb" src="${esc(entry.poster)}" alt="" loading="lazy">` : ""}
+        ${entry.poster ? `<img class="catalog-thumb" src="${esc(adminImageSrc(entry.poster))}" alt="" loading="lazy">` : ""}
         <div class="catalog-cell-text">
           <strong>${esc(entry.title)}</strong>
           <small>${[entry.year, entry.kind, entry.rating ? `★ ${entry.rating}` : ""].filter(Boolean).map(esc).join(" · ")}${entry.note ? ` · ${esc(entry.note)}` : ""}</small>

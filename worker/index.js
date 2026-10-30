@@ -375,7 +375,8 @@ async function prepare(ctx) {
 
 /* ---------------- 公开 API（对齐 server/api.js） ---------------- */
 
-const IMG_HOST = /(^|\.)doubanio\.com$/i;
+const DOUBAN_IMG_HOST = /(^|\.)doubanio\.com$/i;
+const TMDB_IMG_HOST = /(^|\.)tmdb\.org$/i;
 
 // 豆瓣图片防盗链：部分图只认豆瓣自己的 Referer（yinto.top 会 403，无 Referer 418）。
 // 浏览器改不了 Referer，所以在 Worker 侧带豆瓣 Referer 取图并按天缓存。
@@ -389,8 +390,9 @@ async function handleImageProxy(ctx) {
   } catch (err) {
     return sendText(ctx, 400, "400 · 图片地址不合法");
   }
-  if (!/^https?:$/.test(target.protocol) || !IMG_HOST.test(target.hostname)) {
-    return sendText(ctx, 403, "403 · 仅允许豆瓣图片");
+  if (!/^https?:$/.test(target.protocol)
+    || !(DOUBAN_IMG_HOST.test(target.hostname) || TMDB_IMG_HOST.test(target.hostname))) {
+    return sendText(ctx, 403, "403 · 仅允许豆瓣/TMDB 图片");
   }
   // 只缓存成功取回的图片；命中边缘缓存直接返回，避免每个访客都回源豆瓣。
   const cacheable = request.method === "GET";
@@ -399,28 +401,38 @@ async function handleImageProxy(ctx) {
     const cached = await caches.default.match(cacheKey);
     if (cached) return cached;
   }
-  const referers = ["https://movie.douban.com/", "https://www.douban.com/", "https://yinto.top/"];
-  // 豆瓣的 img1/2/3/9 互为镜像；某些域名会被 Cloudflare 出口挡住，失败就换域名重试。
-  const hosts = [...new Set([target.hostname, "img9.doubanio.com", "img3.doubanio.com", "img1.doubanio.com"])];
   let upstream = null;
-  for (const host of hosts) {
-    const candidate = new URL(target.href);
-    candidate.hostname = host;
-    for (const referer of referers) {
-      try {
-        const response = await fetch(candidate.href, {
-          headers: { Referer: referer, Accept: "image/*,*/*" }
-        });
-        if (response.ok && /^image\//i.test(response.headers.get("content-type") || "")) {
-          upstream = response;
-          break;
-        }
-        if (response.status === 404) return sendText(ctx, 404, "图片不存在");
-      } catch (err) {
-        // 换下一个 Referer / 域名
-      }
+  if (TMDB_IMG_HOST.test(target.hostname)) {
+    // TMDB 图片是公开 CDN，无需 Referer；国内直连常被墙，所以经我们代理取。
+    try {
+      const response = await fetch(target.href, { headers: { Accept: "image/*,*/*" } });
+      if (response.ok && /^image\//i.test(response.headers.get("content-type") || "")) upstream = response;
+    } catch (err) {
+      upstream = null;
     }
-    if (upstream) break;
+  } else {
+    const referers = ["https://movie.douban.com/", "https://www.douban.com/", "https://yinto.top/"];
+    // 豆瓣的 img1/2/3/9 互为镜像；某些域名会被 Cloudflare 出口挡住，失败就换域名重试。
+    const hosts = [...new Set([target.hostname, "img9.doubanio.com", "img3.doubanio.com", "img1.doubanio.com"])];
+    for (const host of hosts) {
+      const candidate = new URL(target.href);
+      candidate.hostname = host;
+      for (const referer of referers) {
+        try {
+          const response = await fetch(candidate.href, {
+            headers: { Referer: referer, Accept: "image/*,*/*" }
+          });
+          if (response.ok && /^image\//i.test(response.headers.get("content-type") || "")) {
+            upstream = response;
+            break;
+          }
+          if (response.status === 404) return sendText(ctx, 404, "图片不存在");
+        } catch (err) {
+          // 换下一个 Referer / 域名
+        }
+      }
+      if (upstream) break;
+    }
   }
   if (!upstream) return sendText(ctx, 502, "502 · 图片获取失败");
   const contentType = upstream.headers.get("content-type") || "image/jpeg";
