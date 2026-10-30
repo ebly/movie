@@ -86,7 +86,7 @@ Workers 版与 Node 版的行为差异（都已在冒烟测试中确认）：
 - `run_worker_first` 是路由白名单而不是 `true`：只有页面外壳、`/api/*`、`/go/*` 进 Worker，静态资源由静态层直出，不消耗 10 万次/天的免费请求额度。新增前台页面路由要同步这个列表。
 - 目录在一次 isolate 内缓存 20 秒，避免每个请求两条全表扫描；后台写入后立即失效，编辑仍然即时可见。
 - 埋点写入走 `waitUntil`，不占用响应时间。
-- 统计写入 `events` 表：匿名访客用 `visitor_id` 列（同样来自 `yt_vid` Cookie，不存 IP/UA）；搜索“结果数”借用 `offer_index` 列；标题/平台名查询时关联还原；按日分桶使用 UTC。
+- 统计写入 `events` 表：匿名访客用 `visitor_id` 列（同样来自 `yt_vid` Cookie，不存 IP/UA）；`kind` 支持 `pan_search`（网盘搜索，`pid` 记网盘类型、`offer_index` 记结果总数）、`page`（页面访问，`q` 记 `/`、`/search`、`/list`、`/title`，`pid` 记 zh/en）、`search`（旧版站内搜索）、`view`、`click`；标题/平台名查询时关联还原；按日分桶使用 UTC。
 - 反馈/登录限流是 isolate 内存级近似，跨实例与冷启动会重置——与 Node 的“单进程内存”同级，都不是分布式限流。
 - 后台会话默认 12 小时；密码默认值、演示数据与免责声明与 Node 版相同。
 
@@ -174,6 +174,8 @@ D:/workspace/movie-admin  后台  http://127.0.0.1:4174
 
 功能清单、接口列表、环境变量与后台鉴权说明见 [movie-admin/README.md](../movie-admin/README.md)。
 
+线上另有一份后台界面准备部署在 https://admin.yinto.top（Worker `yingtu-admin`）：静态文件来自 `movie-admin/client`，`/api/*` 反代到本 Worker 的 `/api/admin/*`。目前访问控制还没就绪，整站被开关关掉、一律返回 404；部署命令与启用步骤见 [movie-admin/README.md](../movie-admin/README.md#线上后台adminyintotop)。
+
 本仓库的 `server/` 不含任何后台代码：`/admin`、`/admin/*`、`/api/admin/*` 在本地 Node 服务上一律 404，`client/admin/` 已删除，`robots.txt` 也不再需要屏蔽后台路径。
 
 ## 环境变量
@@ -216,6 +218,7 @@ movie/
 │  ├─ index.html          前台壳、字体、反馈弹窗
 │  ├─ styles.css          前台设计系统与响应式布局
 │  ├─ api.js              同源 API 客户端
+│  ├─ i18n.js             中英文案表、语言切换与静态节点替换
 │  ├─ app.js              前台哈希路由、渲染、筛选、主题
 │  ├─ robots.txt          屏蔽 /admin/
 │  └─ admin/
@@ -300,6 +303,7 @@ movie/
 - 详情页 900ms 的“整理渠道”加载动效，包含请求取消和竞态保护。
 - 渠道按“已验证可看 / 待确认”分组，支持仅看可看、季、地区、方式、画质筛选。
 - 深浅色切换，主题写入 `localStorage`。
+- 中英切换：左上角的语言按钮在中文与 English 间切换，选择写入 `localStorage`（键 `yingtu-lang`），当前页原地重渲染。界面文案来自 `client/i18n.js`；片名、简介、价格等片库数据保持原文，服务端注入的 `<title>`/`description` 与 sitemap 仍为中文。
 - 反馈弹窗提交到服务端，带校验、蜜罐、限流和 JSONL 持久化。
 - 移动端布局，含 390px 断点的海报与筛选重排。
 
@@ -329,6 +333,7 @@ movie/
 | GET | `/api/titles/:id` | 作品详情 + 4 部相似作品 |
 | GET | `/api/titles/:id/offers?season=&region=&tier=&quality=&verified=1` | 渠道筛选、分组和计数 |
 | GET | `/go/:titleId/:offerIndex` | 记录点击并跳转到平台 |
+| POST | `/api/track` | 匿名页面访问埋点，JSON `{path, lang}`（路径白名单 `/`、`/search`、`/list`、`/title`） |
 | POST | `/api/feedback` | 提交反馈，JSON，60 秒内最多 5 次 |
 
 ### 后台接口
