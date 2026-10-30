@@ -1,6 +1,6 @@
 "use strict";
 
-const { applySecurityHeaders, sendText, clientKey, visitorId } = require("./lib/http");
+const { applySecurityHeaders, sendText, clientKey, clientGeo, visitorId } = require("./lib/http");
 const { createRateLimiter } = require("./feedback");
 
 function createGoHandler({ store, analytics }) {
@@ -28,7 +28,8 @@ function createGoHandler({ store, analytics }) {
         title: resolved.item.title,
         providerId: resolved.offer.pid,
         provider: (store.providers[resolved.offer.pid] || {}).name || resolved.offer.pid,
-        visitorId: visitor
+        visitorId: visitor,
+        geo: clientGeo(req)
       });
     }
 

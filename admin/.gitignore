@@ -3,3 +3,5 @@ node_modules/
 .DS_Store
 .env
 .wrangler/
+# 事件现在带来源 IP，任何指向本目录的数据夹具都不许入库
+data/

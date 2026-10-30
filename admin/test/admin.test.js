@@ -265,10 +265,15 @@ describe(`${BRAND.name} 管理后台（独立项目）`, () => {
   test("看板会重新读取前台进程追加的统计文件", async () => {
     const now = new Date().toISOString();
     appendEvents([
-      { id: "e1", at: now, type: "search", query: "沙丘", resultType: "全部", total: 3, visitorId: "v-1" },
-      { id: "e2", at: now, type: "search", query: "zzz-no-such-title", resultType: "全部", total: 0, visitorId: "v-1" },
-      { id: "e3", at: now, type: "view", titleId: "hotd", title: "龙之家族", visitorId: "v-1" },
-      { id: "e4", at: now, type: "click", titleId: "hotd", title: "龙之家族", providerId: "max", provider: "Max", visitorId: "v-2" }
+      { id: "e0", at: now, type: "page", path: "/title", lang: "zh", visitorId: "v-1", country: "CN", city: "Chengdu", ip: "203.0.113.40" },
+      { id: "e1", at: now, type: "search", query: "沙丘", resultType: "全部", total: 3, visitorId: "v-1", ip: "203.0.113.40" },
+      { id: "e2", at: now, type: "search", query: "zzz-no-such-title", resultType: "全部", total: 0, visitorId: "v-1", ip: "203.0.113.40" },
+      { id: "e3", at: now, type: "view", titleId: "hotd", title: "龙之家族", visitorId: "v-1", ip: "203.0.113.40" },
+      // v-2 只有 API 请求、没有页面信标：按疑似自动化处理，不计入真实访客。
+      { id: "e4", at: now, type: "click", titleId: "hotd", title: "龙之家族", providerId: "max", provider: "Max", visitorId: "v-2", country: "DE", ip: "198.51.100.7" },
+      // v-3 执行了页面脚本，但整个编号都在 Scaleway 机房网段：不算真实访客。
+      { id: "e5", at: now, type: "page", path: "/", lang: "en", visitorId: "v-3", country: "FR", city: "Paris", ip: "45.1.1.1", asn: 12876, asOrg: "Scaleway" },
+      { id: "e6", at: now, type: "view", titleId: "hotd", title: "龙之家族", visitorId: "v-3", country: "FR", city: "Paris", ip: "45.1.1.1", asn: 12876, asOrg: "Scaleway" }
     ]);
     const stamped = new Date(Date.now() + 1000);
     fs.utimesSync(analyticsFile, stamped, stamped);
@@ -278,14 +283,53 @@ describe(`${BRAND.name} 管理后台（独立项目）`, () => {
     assert.equal(body.range.days, 7);
     assert.equal(body.trend.length, 7);
     assert.equal(body.overview.searches, 2);
-    assert.equal(body.overview.views, 1);
+    assert.equal(body.overview.views, 2);
     assert.equal(body.overview.clicks, 1);
-    assert.equal(body.overview.visitors, 2);
     assert.equal(body.overview.zeroSearches, 1);
+    assert.equal(body.overview.pageviews, 2, "page 事件要计入页面浏览");
+    assert.equal(body.overview.visitors, 1, "只有打过页面信标、且不是机房来源的编号才算真实访客");
+    assert.equal(body.overview.rawVisitors, 3);
+    assert.equal(body.overview.botSuspects, 2);
+    assert.equal(body.overview.hostingVisitors, 1, "机房来源被单独标出");
     assert.ok(body.topSearches.some((entry) => entry.query === "沙丘"));
     assert.ok(body.zeroSearches.some((entry) => entry.query === "zzz-no-such-title"));
     assert.ok(body.platforms.some((entry) => entry.id === "max" && entry.clicks === 1));
+    assert.ok(body.topPaths.some((entry) => entry.path === "/title" && entry.views === 1));
+    assert.ok(body.langs.some((entry) => entry.lang === "zh" && entry.views === 1));
+    assert.deepEqual(
+      body.topGeo.map((entry) => [entry.label, entry.views, entry.visitors]),
+      [["中国 · Chengdu", 1, 1], ["法国 · Paris", 1, 0]],
+      "访问地区按页面信标统计：机房的页面浏览在，但不带真实访客"
+    );
+    assert.deepEqual(
+      body.suspectGeo.map((entry) => [entry.label, entry.events]),
+      [["德国", 1], ["法国", 1]],
+      "没打过页面信标的编号按国家单独列出"
+    );
+    assert.deepEqual(
+      body.topIps.map((entry) => [entry.ip, entry.label, entry.events, entry.real]),
+      [
+        ["203.0.113.40", "中国 · Chengdu", 4, true],
+        ["45.1.1.1", "法国 · Paris", 2, false],
+        ["198.51.100.7", "德国", 1, false]
+      ],
+      "来源 IP 按事件数排序，机房来源即使有页面信标也不标成真实来源"
+    );
+    const hostingIp = body.topIps.find((entry) => entry.ip === "45.1.1.1");
+    assert.equal(hostingIp.hosting, true);
+    assert.equal(hostingIp.asn, 12876);
+    assert.equal(hostingIp.asOrg, "Scaleway");
     assert.ok(body.recent.some((entry) => entry.type === "click"));
+    assert.equal(body.recent.some((entry) => entry.type === "page"), false, "页面信标不进最近动态");
+    assert.equal(body.visitors[0].id, "v-1", "真实访客排在列表前面");
+    assert.equal(body.visitors[0].real, true);
+    assert.equal(body.visitors[0].pages, 1);
+    assert.equal(body.visitors[0].ip, "203.0.113.40", "访客行带上来源 IP");
+    assert.equal(body.visitors[0].ips, 1);
+    assert.equal(body.visitors[1].real, false);
+    assert.equal(body.visitors[1].hosting, false, "一般疑似自动化排在机房来源前面");
+    assert.equal(body.visitors[2].id, "v-3", "机房来源排在最后");
+    assert.equal(body.visitors[2].hosting, true);
     assert.match(body.visitors[0].label, /^访客 /);
     assert.equal(body.usingDefaultPassword, false);
   });

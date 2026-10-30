@@ -735,6 +735,10 @@ h1, h2, h3, p { margin: 0; }
 .chart-legend i { width: 16px; height: 2px; border-radius: 2px; }
 .chart-legend i.search { background: var(--accent); }
 .chart-legend i.view { background: var(--green); }
+/* 图例色块用 pageview，不要写 .page —— 那是主内容区的容器类，padding 会把小块撑成一大块 */
+.chart-legend i.pageview {
+  background: repeating-linear-gradient(90deg, var(--amber) 0 4px, transparent 4px 7px);
+}
 .chart-scroll { overflow-x: auto; overflow-y: hidden; margin: 0 -4px; padding: 0 4px; }
 .chart-scroll svg { min-width: 640px; width: 100%; height: auto; }
 .chart-empty { margin-top: 8px; color: var(--muted); font-size: 11px; text-align: center; }
@@ -765,6 +769,7 @@ h1, h2, h3, p { margin: 0; }
   margin-bottom: 16px;
 }
 .board-grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.board-grid.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .board-grid .span-2 { grid-column: span 2; }
 
 .rank-list { display: grid; gap: 2px; }
@@ -826,6 +831,46 @@ h1, h2, h3, p { margin: 0; }
 .bar-track { height: 6px; border-radius: 999px; background: rgba(13, 42, 46, .07); overflow: hidden; }
 .bar-fill { height: 100%; border-radius: inherit; background: var(--bar-color, var(--accent)); opacity: .82; }
 .bar-count { text-align: right; color: var(--muted); font-family: var(--mono); font-size: 9.5px; }
+/* 访问地区面板下方那行「疑似自动化来自哪里」的小字说明 */
+.geo-suspect {
+  margin-top: 11px;
+  padding-top: 9px;
+  border-top: 1px dashed rgba(13, 42, 46, .12);
+  color: var(--muted-2);
+  font-size: 9.5px;
+  line-height: 1.7;
+}
+
+/* 访问来源 IP 面板：一行一个来源，没执行过页面脚本的整行压暗、地址标琥珀色 */
+.ip-list { display: grid; gap: 0; }
+.ip-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px dashed rgba(13, 42, 46, .08);
+}
+.ip-row:last-child { border-bottom: 0; }
+.ip-main { min-width: 0; }
+.ip-main strong {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: all;
+}
+.ip-main small { color: var(--muted-2); font-size: 9px; }
+.ip-counts { display: grid; justify-items: end; gap: 1px; font-family: var(--mono); font-size: 8.5px; color: var(--muted); }
+.ip-counts b { color: var(--ink-2); font-size: 11px; font-weight: 500; }
+.ip-row.is-suspect { opacity: .62; }
+.ip-row.is-suspect .ip-main strong { color: var(--amber); }
+/* 机房 / 代理网段：即使执行过页面脚本也压暗，地址标灰，不抢真实来源的注意力 */
+.ip-row.is-hosting { opacity: .55; }
+.ip-row.is-hosting .ip-main strong { color: var(--muted); }
 
 .activity { display: grid; gap: 0; }
 .activity-item {
@@ -884,6 +929,12 @@ h1, h2, h3, p { margin: 0; }
 .visitor-main small { color: var(--muted-2); font-size: 9px; }
 .visitor-counts { display: flex; gap: 7px; color: var(--muted); font-family: var(--mono); font-size: 8.5px; }
 .visitor-counts b { color: var(--ink-2); font-weight: 500; }
+/* 没有页面信标的编号：仍然列出，但压暗，避免被当成真实访客读。 */
+.visitor-row.is-suspect { opacity: .55; }
+.visitor-row.is-suspect .visitor-avatar { background: var(--amber-soft); color: var(--amber); }
+/* 机房 / 代理来源：同样压暗，头像用中性灰，和「未执行页面脚本」区分开 */
+.visitor-row.is-hosting { opacity: .55; }
+.visitor-row.is-hosting .visitor-avatar { background: rgba(13, 42, 46, .05); color: var(--muted); }
 
 .feedback-list { display: grid; gap: 0; }
 .feedback-item { padding: 11px 0; border-bottom: 1px solid rgba(13, 42, 46, .07); }
@@ -1618,6 +1669,7 @@ select {
   .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .board-grid.three { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .board-grid.three > :last-child { grid-column: span 2; }
+  .board-grid.four { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .editor-grid { grid-template-columns: minmax(0, 1.5fr) minmax(280px, .9fr); }
   .offer-main-row { grid-template-columns: minmax(120px, 1.25fr) minmax(80px, .75fr) 70px minmax(80px, .9fr) auto auto; }
 }
@@ -1677,7 +1729,7 @@ select {
   .login-copy h1 { margin-top: 13px; font-size: 36px; }
   .login-panel { padding: 30px 20px 50px; align-items: flex-start; }
   .metrics { grid-template-columns: 1fr 1fr; }
-  .board-grid, .board-grid.three { grid-template-columns: 1fr; }
+  .board-grid, .board-grid.three, .board-grid.four { grid-template-columns: 1fr; }
   .board-grid.three > :last-child, .board-grid .span-2 { grid-column: auto; }
   .form-grid { grid-template-columns: 1fr; }
   .field.full { grid-column: auto; }

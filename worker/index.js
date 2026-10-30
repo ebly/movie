@@ -20,6 +20,9 @@ import tmdb from "../shared/tmdb.js";
 import brandUtil from "../shared/brand.js";
 import pansou from "../shared/pansou.js";
 import douban from "../shared/douban.js";
+import geo from "../shared/geo.js";
+
+const { geoFields } = geo;
 
 const pansouClients = new WeakMap();
 const doubanClients = new WeakMap();
@@ -59,7 +62,8 @@ async function handleQuarkSearch(ctx) {
         query,
         type: result.type,
         total: result.total,
-        visitorId: visitor
+        visitorId: visitor,
+        geo: clientGeo(ctx.request)
       }));
     }
     return sendJSON(ctx, 200, result);
@@ -230,15 +234,39 @@ function clientKey(request) {
   return forwarded || "unknown";
 }
 
-/** Stable anonymous id for behavior stats. No IP or user agent is stored. */
+/** 访客去重用的随机编号（Cookie）。UA 不落库；IP 另存一列，只给后台看来源。 */
 function visitorId(ctx) {
   const cookies = parseCookies(ctx.request);
   let id = cookies[BRAND.cookies.visitor];
+  if (!id) {
+    // 小程序没有 Cookie 罐，允许客户端用 X-YT-Visitor 自报一个 UUID 形状的编号：
+    // 同一个人的多次请求才能算成一个访客，而不是每次都被铸成新编号记进「疑似自动化」。
+    // 浏览器仍然以 Cookie 为准；两边都是随机 UUID，不含任何设备信息。
+    const header = ctx.request.headers.get("x-yt-visitor");
+    if (header) id = header.trim();
+  }
   if (!id || !VISITOR_RE.test(id)) {
     id = crypto.randomUUID();
     ctx.cookies.push(`${BRAND.cookies.visitor}=${id}; Path=/; Max-Age=31536000; HttpOnly; SameSite=Lax${secureFlag(ctx.request)}`);
   }
   return id;
+}
+
+/**
+ * 地区与来源：国家/城市取 Cloudflare 边缘 GeoIP 已经解析好的结果，IP 取 cf-connecting-ip
+ * （本地跑测没有 request.cf 时回退 x-forwarded-for），清洗都在 shared/geo.js 里做。
+ * asn / asOrganization 是同一个请求的来源网络，用来把机房与代理从「真实访客」里剔除
+ * （判据见 shared/asn.js）。这些字段都只写进 events 表供后台看板用；公开接口不会返回。
+ */
+function clientGeo(request) {
+  const cf = request.cf || {};
+  return geoFields({
+    country: cf.country || request.headers.get("cf-ipcountry"),
+    city: cf.city,
+    ip: clientKey(request),
+    asn: cf.asn,
+    asOrganization: cf.asOrganization
+  });
 }
 
 function sameOrigin(request, url) {
@@ -322,7 +350,8 @@ async function handleApi(ctx) {
     record(ctx.execution, analytics.recordPage({
       path: page,
       lang: pageLang(body.lang),
-      visitorId: visitor
+      visitorId: visitor,
+      geo: clientGeo(request)
     }));
     return sendJSON(ctx, 202, { ok: true });
   }
@@ -345,7 +374,8 @@ async function handleApi(ctx) {
         type: data.type,
         total: data.total,
         tookMs: data.tookMs,
-        visitorId: visitor
+        visitorId: visitor,
+        geo: clientGeo(ctx.request)
       }));
     }
     return sendJSON(ctx, 200, data);
@@ -380,7 +410,8 @@ async function handleApi(ctx) {
       record(ctx.execution, analytics.recordView({
         titleId: data.item.id,
         title: data.item.title,
-        visitorId: visitor
+        visitorId: visitor,
+        geo: clientGeo(ctx.request)
       }));
     }
     return sendJSON(ctx, 200, data);
@@ -634,7 +665,8 @@ async function handleGo(ctx, rawId, rawIndex) {
       providerId: resolved.offer.pid,
       provider: (PROVIDERS[resolved.offer.pid] || {}).name || resolved.offer.pid,
       visitorId: visitor,
-      offerIndex: Number(rawIndex)
+      offerIndex: Number(rawIndex),
+      geo: clientGeo(ctx.request)
     }));
   }
 

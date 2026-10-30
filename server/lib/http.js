@@ -2,6 +2,7 @@
 
 const crypto = require("crypto");
 const BRAND = require("../../config/brand.json");
+const { geoFromHeaders } = require("../../shared/geo");
 
 class HttpError extends Error {
   constructor(status, code, message) {
@@ -128,7 +129,7 @@ function secureFlag(req) {
 
 const VISITOR_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Stable anonymous id for behavior stats. No IP or user agent is stored. */
+/** 访客去重用的随机编号（Cookie）。UA 不落库；IP 另存一列，只给后台看来源。 */
 function visitorId(req, res) {
   const cookies = parseCookies(req);
   const name = BRAND.cookies.visitor;
@@ -143,6 +144,14 @@ function visitorId(req, res) {
   return id;
 }
 
+/**
+ * 地区与来源：Node 部署只有经 Cloudflare 回源时才拿得到 cf-ipcountry 头，城市名需要 Worker 的
+ * request.cf 才有，所以这条路径只到国家；IP 取 clientKey()（TRUST_PROXY=1 时用 XFF，否则 socket 对端）。
+ */
+function clientGeo(req) {
+  return geoFromHeaders(req.headers, clientKey(req));
+}
+
 module.exports = {
   HttpError,
   CSP,
@@ -151,6 +160,7 @@ module.exports = {
   sendError,
   sendText,
   readJSON,
+  clientGeo,
   clientKey,
   parseCookies,
   appendCookie,

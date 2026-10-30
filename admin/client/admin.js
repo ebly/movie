@@ -434,7 +434,7 @@ async function renderDashboard() {
   shell("dashboard", "数据看板", `${pageHead({
     eyebrow: "Overview",
     title: "数据看板",
-    sub: `过去 ${state.days} 天 · 匿名行为统计，不记录 IP 或设备指纹`
+    sub: `过去 ${state.days} 天 · 匿名行为统计，来源 IP 仅本后台可见`
   })}<div class="panel panel-pad"><div class="title-loading">正在汇总行为数据…</div></div>`);
 
   try {
@@ -493,6 +493,52 @@ function dashboardHTML(data) {
       }).join("")
     : `<div class="rank-empty">还没有平台跳转数据。</div>`;
 
+  // 页面信标（/api/track）早就在落库，这里第一次把它聚合成路径与语言分布。
+  const LANG_NAMES = { zh: "中文", en: "English" };
+  const barRows = (entries, { name, value, visitors, empty }) => {
+    if (!entries.length) return `<div class="rank-empty">${empty}</div>`;
+    const max = Math.max(...entries.map(value), 1);
+    return entries.map((entry) => `<div class="bar-row">
+          <span class="bar-name">${esc(name(entry))}</span>
+          <span class="bar-track"><span class="bar-fill" style="width:${Math.max(4, Math.round((value(entry) / max) * 100))}%;--bar-color:var(--amber)"></span></span>
+          <span class="bar-count" title="${visitors(entry)} 个真实访客">${num(value(entry))}</span>
+        </div>`).join("");
+  };
+  const pageRows = barRows(data.topPaths || [], {
+    name: (entry) => entry.path,
+    value: (entry) => entry.views,
+    visitors: (entry) => entry.visitors,
+    empty: "还没有页面访问数据。"
+  });
+  const langRows = barRows(data.langs || [], {
+    name: (entry) => LANG_NAMES[entry.lang] || entry.lang,
+    value: (entry) => entry.views,
+    visitors: (entry) => entry.visitors,
+    empty: "还没有语言数据。"
+  });
+  const geoRows = barRows(data.topGeo || [], {
+    name: (entry) => entry.label,
+    value: (entry) => entry.views,
+    visitors: (entry) => entry.visitors,
+    empty: "还没有地区数据。"
+  });
+  // 疑似自动化的来源地单独提一句：它们不进上面的地区分布（那里只算打过页面信标的）。
+  const suspectGeo = data.suspectGeo || [];
+  const suspectGeoNote = suspectGeo.length
+    ? `<p class="geo-suspect">未执行页面脚本的流量来自：${suspectGeo
+      .map((entry) => `${esc(entry.label)} ${num(entry.events)}`)
+      .join("、")}。</p>`
+    : "";
+  // 来源 IP 明细：按事件数排序，最活跃的来源在前；没打过页面信标的整行压暗，
+  // 机房 / 代理网段（按 ASN 判定）额外标出来，哪怕它执行过页面脚本。
+  const ipEntries = data.topIps || [];
+  const ipRows = ipEntries.length ? `<div class="ip-list">${ipEntries.map((entry) => `
+        <div class="ip-row${entry.real ? "" : " is-suspect"}${entry.hosting ? " is-hosting" : ""}">
+          <div class="ip-main"><strong title="${esc(entry.ip)}">${esc(entry.ip)}</strong><small>${esc(entry.label)}${entry.hosting ? ` · 机房${entry.asOrg ? ` ${esc(entry.asOrg)}` : ""}${entry.asn ? ` · AS${num(entry.asn)}` : ""}` : ""}${entry.visitors > 1 ? ` · ${num(entry.visitors)} 个编号` : ""}</small></div>
+          <div class="ip-counts"><b>${num(entry.events)}</b><span>${relativeTime(entry.lastAt)}</span></div>
+        </div>`).join("")}</div>`
+    : `<div class="rank-empty">还没有来源 IP 数据。</div>`;
+
   return `${pageHead({
     eyebrow: "Overview",
     title: "数据看板",
@@ -526,10 +572,14 @@ function dashboardHTML(data) {
       color: "var(--amber)"
     })}
     ${metricCard({
-      label: "独立访客",
+      label: "真实访客",
       value: overview.visitors,
       change: data.comparison.visitors,
-      note: "匿名 Cookie 去重 · 不记录 IP",
+      note: overview.hostingVisitors
+        ? `已排除 ${overview.hostingVisitors} 个机房来源，另有 ${overview.botSuspects} 个编号未执行页面脚本`
+        : overview.botSuspects
+          ? `另有 ${overview.botSuspects} 个编号未执行页面脚本`
+          : "只计执行过页面脚本的匿名编号",
       icon: ICONS.users,
       color: "var(--ink-2)"
     })}
@@ -539,15 +589,16 @@ function dashboardHTML(data) {
     <div class="panel-head">
       <div>
         <h2>行为趋势</h2>
-        <p>搜索与详情浏览的每日变化，悬停查看具体数字。</p>
+        <p>页面浏览、搜索与详情浏览的每日变化，悬停查看具体数字。</p>
       </div>
       <div class="chart-legend">
+        <span><i class="pageview"></i>页面浏览</span>
         <span><i class="search"></i>搜索</span>
         <span><i class="view"></i>详情浏览</span>
       </div>
     </div>
     ${chartHTML(data.trend)}
-    ${data.trend.some((point) => point.searches || point.views) ? "" : `<p class="chart-empty">还没有行为数据。去前台搜索或打开一部作品，这里就会开始记录。</p>`}
+    ${data.trend.some((point) => point.pageviews || point.searches || point.views) ? "" : `<p class="chart-empty">还没有行为数据。去前台搜索或打开一部作品，这里就会开始记录。</p>`}
   </section>
 
   <div class="board-grid">
@@ -601,19 +652,54 @@ function dashboardHTML(data) {
     </section>
   </div>
 
+  <div class="board-grid four">
+    <section class="panel panel-pad">
+      <div class="panel-head">
+        <div><h2>页面访问</h2><p>前台页面信标的落点，共 ${num(overview.pageviews)} 次。</p></div>
+        <span class="mono">PAGES</span>
+      </div>
+      <div class="bar-list">${pageRows}</div>
+    </section>
+
+    <section class="panel panel-pad">
+      <div class="panel-head">
+        <div><h2>界面语言</h2><p>中英文两个界面各被打开的页面数。</p></div>
+        <span class="mono">LANG</span>
+      </div>
+      <div class="bar-list">${langRows}</div>
+    </section>
+
+    <section class="panel panel-pad">
+      <div class="panel-head">
+        <div><h2>访问地区</h2><p>Cloudflare 边缘 GeoIP 解析出的国家与城市，只算打过页面信标的访客。</p></div>
+        <span class="mono">GEO</span>
+      </div>
+      <div class="bar-list">${geoRows}</div>
+      ${suspectGeoNote}
+    </section>
+
+    <section class="panel panel-pad">
+      <div class="panel-head">
+        <div><h2>访问来源</h2><p>访客的真实 IP，按事件数排序；压暗的行是没执行页面脚本或来自机房、代理网段的来源。</p></div>
+        <span class="mono">SOURCE IP</span>
+      </div>
+      ${ipRows}
+    </section>
+  </div>
+
   <div class="board-grid three">
     <section class="panel panel-pad">
       <div class="panel-head">
-        <div><h2>访客活跃度</h2><p>按最近活跃排序的匿名访客。</p></div>
+        <div><h2>访客活跃度</h2><p>真实访客在前；机房来源与未执行页面脚本的编号排在后面。</p></div>
         <span class="mono">VISITORS</span>
       </div>
       ${data.visitors.length ? `<div class="visitor-list">${data.visitors.map((entry) => `
-        <div class="visitor-row">
+        <div class="visitor-row${entry.real ? "" : entry.hosting ? " is-hosting" : " is-suspect"}">
           <span class="visitor-avatar">${esc(entry.id.slice(0, 2).toUpperCase())}</span>
-          <div class="visitor-main"><strong>${esc(entry.label)}</strong><small>最近 ${relativeTime(entry.lastAt)}</small></div>
-          <div class="visitor-counts"><span>搜 <b>${entry.searches}</b></span><span>看 <b>${entry.views}</b></span><span>点 <b>${entry.clicks}</b></span></div>
+          <div class="visitor-main"><strong>${esc(entry.label)}</strong><small>${entry.ip ? `${esc(entry.ip)} · ` : ""}${entry.real ? `最近 ${relativeTime(entry.lastAt)}` : entry.hosting ? `机房来源${entry.asOrg ? ` ${esc(entry.asOrg)}` : ""} · 最近 ${relativeTime(entry.lastAt)}` : `未执行页面脚本 · 最近 ${relativeTime(entry.lastAt)}`}</small></div>
+          <div class="visitor-counts"><span>页 <b>${entry.pages}</b></span><span>搜 <b>${entry.searches}</b></span><span>看 <b>${entry.views}</b></span><span>点 <b>${entry.clicks}</b></span></div>
         </div>`).join("")}</div>` : `<div class="rank-empty">还没有访客行为。</div>`}
-      <div class="privacy-note">${ICONS.shield}<span>访客编号来自随机 Cookie，只用于去重。统计不保存 IP、设备信息或登录身份。</span></div>
+      <div class="privacy-note">${ICONS.shield}<span>访客编号来自随机 Cookie，只用于去重；事件另带来源 IP、GeoIP 解析出的国家与城市，以及 Cloudflare 边缘给出的 ASN 与网络组织，用来认出反复打点的采集脚本和机房来源。这些只在这个本地后台可见，前台公开接口不返回，也不接第三方统计。只有打过页面信标、且不是机房或代理网段的编号才计入「真实访客」；其余落在「未执行页面脚本」或「机房来源」里。</span></div>
     </section>
 
     <section class="panel panel-pad">
@@ -657,13 +743,13 @@ function chartHTML(trend) {
   const pad = { left: 44, right: 18, top: 20, bottom: 34 };
   const innerW = width - pad.left - pad.right;
   const innerH = height - pad.top - pad.bottom;
-  const maxValue = niceMax(Math.max(1, ...trend.map((point) => Math.max(point.searches, point.views))));
+  const maxValue = niceMax(Math.max(1, ...trend.map((point) => Math.max(point.pageviews || 0, point.searches, point.views))));
   const stepX = trend.length > 1 ? innerW / (trend.length - 1) : 0;
   const x = (index) => trend.length > 1 ? pad.left + index * stepX : pad.left + innerW / 2;
   const y = (value) => pad.top + innerH - (value / maxValue) * innerH;
 
   const line = (key) => trend
-    .map((point, index) => `${index ? "L" : "M"}${x(index).toFixed(1)} ${y(point[key]).toFixed(1)}`)
+    .map((point, index) => `${index ? "L" : "M"}${x(index).toFixed(1)} ${y(point[key] || 0).toFixed(1)}`)
     .join(" ");
   const area = trend.length > 1
     ? `M${x(0).toFixed(1)} ${(pad.top + innerH).toFixed(1)} ${trend.map((point, index) => `L${x(index).toFixed(1)} ${y(point.views).toFixed(1)}`).join(" ")} L${x(trend.length - 1).toFixed(1)} ${(pad.top + innerH).toFixed(1)} Z`
@@ -684,15 +770,16 @@ function chartHTML(trend) {
 
   const dots = trend.length <= 31 ? trend.map((point, index) => `
     <g>
+      <circle cx="${x(index)}" cy="${y(point.pageviews || 0)}" r="3" fill="#fbf7ef" stroke="#9a6b22" stroke-width="1.6"/>
       <circle cx="${x(index)}" cy="${y(point.searches)}" r="3" fill="#fbf7ef" stroke="#a83232" stroke-width="1.6"/>
       <circle cx="${x(index)}" cy="${y(point.views)}" r="3" fill="#fbf7ef" stroke="#2d7a5a" stroke-width="1.6"/>
       <circle cx="${x(index)}" cy="${y(point.searches)}" r="12" fill="transparent">
-        <title>${point.date} · 搜索 ${point.searches} · 浏览 ${point.views} · 访客 ${point.visitors}</title>
+        <title>${point.date} · 页面 ${point.pageviews || 0} · 搜索 ${point.searches} · 浏览 ${point.views} · 访客 ${point.visitors}</title>
       </circle>
     </g>`).join("") : "";
 
   return `<div class="chart-scroll">
-    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="搜索与详情浏览趋势">
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="页面浏览、搜索与详情浏览趋势">
       <defs>
         <linearGradient id="viewsFill" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stop-color="#2d7a5a" stop-opacity=".16"/>
@@ -701,6 +788,7 @@ function chartHTML(trend) {
       </defs>
       ${grid}
       ${area ? `<path d="${area}" fill="url(#viewsFill)"/>` : ""}
+      <path d="${line("pageviews")}" fill="none" stroke="#9a6b22" stroke-width="1.6" stroke-dasharray="4 3" stroke-linejoin="round" stroke-linecap="round"/>
       <path d="${line("views")}" fill="none" stroke="#2d7a5a" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>
       <path d="${line("searches")}" fill="none" stroke="#a83232" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>
       ${dots}

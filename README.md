@@ -56,7 +56,7 @@ PORT=4174 HOST=0.0.0.0 npm start
 
 ```powershell
 npm install                # 安装 wrangler 4（仅 Workers 工具链需要）
-npm run db:migrate         # 本地 D1 建表（worker/migrations/0001_init.sql + 0002_poster.sql）
+npm run db:migrate         # 本地 D1 建表（worker/migrations/ 下 0001-0007，含事件的地区、来源 IP 与来源网络列）
 npm run db:seed            # 生成 worker/seed.sql 并导入 16 部演示作品
 npm run dev:worker         # http://localhost:8787，Worker + 静态资源 + 本地 D1
 ```
@@ -86,7 +86,7 @@ Workers 版与 Node 版的行为差异（都已在冒烟测试中确认）：
 - `run_worker_first` 是路由白名单而不是 `true`：只有页面外壳、`/api/*`、`/go/*` 进 Worker，静态资源由静态层直出，不消耗 10 万次/天的免费请求额度。新增前台页面路由要同步这个列表。
 - 目录在一次 isolate 内缓存 20 秒，避免每个请求两条全表扫描；后台写入后立即失效，编辑仍然即时可见。
 - 埋点写入走 `waitUntil`，不占用响应时间。
-- 统计写入 `events` 表：匿名访客用 `visitor_id` 列（同样来自 `yt_vid` Cookie，不存 IP/UA）；`kind` 支持 `pan_search`（网盘搜索，`pid` 记网盘类型、`offer_index` 记结果总数）、`page`（页面访问，`q` 记 `/`、`/search`、`/list`、`/title`，`pid` 记 zh/en）、`search`（旧版站内搜索）、`view`、`click`；标题/平台名查询时关联还原；按日分桶使用 UTC。
+- 统计写入 `events` 表：匿名访客用 `visitor_id` 列（同样来自 `yt_vid` Cookie，不存 UA）；`kind` 支持 `pan_search`（网盘搜索，`pid` 记网盘类型、`offer_index` 记结果总数）、`page`（页面访问，`q` 记 `/`、`/search`、`/list`、`/title`，`pid` 记 zh/en）、`search`（旧版站内搜索）、`view`、`click`；标题/平台名查询时关联还原；按日分桶使用北京时间（UTC+8，`shared/stats-time.js`，与 Node 版共用一份口径）；`country`/`city` 取自 Cloudflare 边缘 GeoIP（`request.cf`，Node 侧只有 `cf-ipcountry` 头，故只到国家），`ip` 存访客的真实来源地址（`cf-connecting-ip`，Node 侧走 `clientKey()`），`asn`/`as_org` 存该地址所属网络（`request.cf.asn` / `asOrganization`），四者都只从 `/api/admin/*` 输出。「真实访客」= 打过页面信标、且所属网络不是机房/代理（判据在 `shared/asn.js`）的匿名编号；无头浏览器会执行页面脚本，所以光看信标不足以证明是人。
 - 反馈/登录限流是 isolate 内存级近似，跨实例与冷启动会重置——与 Node 的“单进程内存”同级，都不是分布式限流。
 - 后台会话默认 12 小时；密码默认值、演示数据与免责声明与 Node 版相同。
 
@@ -235,6 +235,9 @@ movie/
 │  ├─ meta.js              页面 title/description/OG/JSON-LD 与 sitemap
 │  ├─ tmdb.js              TMDB 检索、错误码与字段映射
 │  ├─ pansou.js            PanSou 客户端：类型白名单、URL 校验、缓存与分页
+│  ├─ stats-time.js        统计分日口径（北京时间 UTC+8，可用 STATS_TZ_OFFSET_MINUTES 覆盖）
+│  ├─ geo.js               事件来源字段清洗：国家码/城市名/来源 IP/ASN 与组织名校验、中文名映射
+│  ├─ asn.js               来源网络性质判定：机房/代理 ASN 名单，以及「真实访客」的拆分口径
 │  └─ douban.js            豆瓣榜单（热门/最新）抓取、归一化与 10 分钟缓存
 ├─ server/
 │  ├─ index.js            启动入口、超时与优雅关闭
@@ -266,7 +269,7 @@ movie/
 │  ├─ feedback.js         反馈存储与限流
 │  ├─ adminAuth.js        HMAC 无状态会话 Cookie
 │  ├─ config.js           平台表、类型、画质顺序
-│  └─ migrations/         D1 迁移（0001 建表 / 0002 海报地址 / 0003 移除片库 / 0004 事件类型）
+│  └─ migrations/         D1 迁移（0001 建表 / 0002 海报地址 / 0003 移除片库 / 0004 事件类型 / 0005 地区 / 0006 来源 IP / 0007 来源网络 ASN）
 ├─ scripts/
 │  ├─ build-pinyin.mjs    生成 shared/pinyin-data.js（离线，一次即可）
 │  ├─ sync-catalog.mjs    把 titles.json 同步到打包目录并重新部署
@@ -276,7 +279,9 @@ movie/
 │  ├─ analytics.ndjson    匿名搜索、浏览、跳转事件
 │  └─ feedback.ndjson     前台反馈
 ├─ docs/
-│  └─ showpaw-拆解与复刻方案.md
+│  ├─ showpaw-拆解与复刻方案.md
+│  ├─ deploy-free.md       免费上线检查清单
+│  └─ anti-abuse.md        边缘反爬与滥用防护清单（Cloudflare 规则）
 ├─ wrangler.toml          Workers 部署配置（assets + D1 绑定）
 ├─ package.json
 └─ .gitignore
@@ -408,17 +413,22 @@ url, clickUrl
 - 如果 JSON 文件损坏，会重命名为 `titles.json.broken-<时间戳>.json`，再重新用 seed 初始化；原文件会保留供排查。
 - 直接手改 `data/titles.json` 需要重启服务端；通过后台修改则立即生效。
 
-### 匿名统计
+### 行为统计与来源
 
 `data/analytics.ndjson` 是追加写入的 JSON Lines：
 
 ```json
-{"type":"search","query":"沙丘","resultType":"全部","total":2,"tookMs":1,"visitorId":"..."}
-{"type":"view","titleId":"dune2","title":"沙丘2","visitorId":"..."}
-{"type":"click","titleId":"dune2","providerId":"max","provider":"Max","visitorId":"..."}
+{"type":"page","path":"/","lang":"zh","visitorId":"...","country":"CN","city":"Shanghai","ip":"203.0.113.7","asn":4134,"asOrg":"China Telecom"}
+{"type":"search","query":"沙丘","resultType":"全部","total":2,"tookMs":1,"visitorId":"...","country":"CN","city":"Shanghai","ip":"203.0.113.7","asn":4134,"asOrg":"China Telecom"}
+{"type":"view","titleId":"dune2","title":"沙丘2","visitorId":"...","ip":"198.51.100.20"}
+{"type":"click","titleId":"dune2","providerId":"max","provider":"Max","visitorId":"...","ip":"198.51.100.20"}
 ```
 
-- 访客用随机 `yt_vid` HttpOnly Cookie 去重，**不保存 IP、User-Agent、设备指纹或登录身份**。
+- 访客用随机 `yt_vid` HttpOnly Cookie 去重，**不保存 User-Agent、设备指纹或登录身份**。
+- 事件带四个来源字段：`country`/`city` 来自 Cloudflare 边缘 GeoIP 对连接 IP 的解析结果（只到国家/城市，城市常被运营商归到省会），`ip` 是访客的真实来源地址（Worker 取 `cf-connecting-ip`，Node 侧走 `clientKey()`），`asn`/`asOrg` 是这个地址所属网络（AS 号与组织名，Worker 取 `request.cf.asn` / `asOrganization`）。存 IP 是为了认出「同一个来源在反复打接口却从不执行页面脚本」，存来源网络是为了认出机房和代理——无头浏览器会执行页面脚本，光看页面信标分不出人。
+- 看板里的「真实访客」= 打过页面信标 **且** 不是机房/代理来源的匿名编号；判定名单在 `shared/asn.js`（已知云厂商 ASN + 组织名关键词，名字里带 fiber/broadband/telecom 等宽带词的放过）。判定只在看板聚合时做，事件照常入库，改完名单历史数据能直接重算。`overview.hostingVisitors` 给出被排除的机房编号数。
+- 这些字段只从 `/api/admin/*` 输出（需登录，且后台按约定只跑在本地/内网），前台任何公开接口都不返回。清洗统一在 `shared/geo.js`：国家码限两位大写字母、城市名去控制字符并限 48 字、IP 只收合法 IPv4/IPv6（顺手去掉 `::ffff:` 前缀与区域标识）并限 45 字、ASN 只收 32 位正整数、组织名去控制字符并限 64 字，非法值一律落成空。
+- IP 属于个人信息：线上部署需要在隐私政策里写明采集目的与保留期限，并定期清理旧事件（`DELETE FROM events WHERE created_at < …`）。历史行在迁移前写入的没有这些字段，看板会归到「未知地区」，且因为拿不到 ASN 而不会被判成机房。
 - 搜索词、作品名和平台名会记录，属于可能含个人偏好的行为数据；生产环境需要隐私政策、告知与保留期限。
 - 看板中的“详情浏览”是详情页请求数，“平台跳转”是 `/go` 跳转数。**它们不是实际播放量**，映途无法获知用户在 Netflix 等平台是否真的播放。
 - 文件按行加载，单行损坏会被跳过；内存最多保留 20 万条事件，旧事件仍留在文件中。
@@ -542,4 +552,5 @@ PanSou 源码采用 MIT 许可证，复制或分发其代码须保留其版权�
 
 - [Showpaw 拆解与复刻方案](docs/showpaw-拆解与复刻方案.md)
 - [免费上线检查清单](docs/deploy-free.md)
+- [边缘反爬与滥用防护清单](docs/anti-abuse.md)
 - 参考站：https://www.showpaw.xyz/

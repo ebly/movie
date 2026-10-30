@@ -1,6 +1,6 @@
 "use strict";
 
-const { HttpError, sendJSON, sendError, readJSON, clientKey, visitorId } = require("./lib/http");
+const { HttpError, sendJSON, sendError, readJSON, clientKey, clientGeo, visitorId } = require("./lib/http");
 const { createRateLimiter, cleanText } = require("./feedback");
 const { publicBrand } = require("../shared/brand");
 const BRAND = require("../config/brand.json");
@@ -135,7 +135,8 @@ function createApi({ store, feedback, analytics, pansou }) {
             query,
             type: result.type,
             total: result.total,
-            visitorId: visitor
+            visitorId: visitor,
+            geo: clientGeo(req)
           }));
         }
         return sendJSON(res, 200, result);
@@ -177,7 +178,8 @@ function createApi({ store, feedback, analytics, pansou }) {
           type: data.type,
           total: data.total,
           tookMs: data.tookMs,
-          visitorId: visitor
+          visitorId: visitor,
+          geo: clientGeo(req)
         }));
       }
       return sendJSON(res, 200, data);
@@ -212,7 +214,8 @@ function createApi({ store, feedback, analytics, pansou }) {
         await record(analytics.recordView({
           titleId: data.item.id,
           title: data.item.title,
-          visitorId: visitor
+          visitorId: visitor,
+          geo: clientGeo(req)
         }));
       }
       return sendJSON(res, 200, data);
@@ -232,7 +235,8 @@ function createApi({ store, feedback, analytics, pansou }) {
       await record(analytics.recordPage({
         path: page,
         lang: pageLang(body.lang),
-        visitorId: visitorId(req, res)
+        visitorId: visitorId(req, res),
+        geo: clientGeo(req)
       }));
       return sendJSON(res, 202, { ok: true });
     }

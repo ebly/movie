@@ -212,6 +212,15 @@ async function hit(pathname, init = {}) {
   const response = await worker.fetch(request, env, execution);
   return response;
 }
+/**
+ * 带上 request.cf 的请求：本地 Request 没有 cf 字段，用 defineProperty 挂上去，
+ * 模拟 Cloudflare 边缘真正会给出的 country / city / asn / asOrganization。
+ */
+async function hitWithCf(pathname, init = {}, cf = {}) {
+  const request = new Request(ORIGIN + pathname, init);
+  Object.defineProperty(request, "cf", { value: cf });
+  return worker.fetch(request, env, execution);
+}
 async function hitJSON(pathname, init = {}) {
   const response = await hit(pathname, init);
   let body = null;
@@ -353,9 +362,54 @@ const SNAPSHOT_COUNT = catalogSnapshot.items.length;
 
 console.log("\n=== 埋点与看板 ===");
 {
-  await hit("/api/search?q=" + encodeURIComponent("zzz-没有结果"));
-  await hit("/api/titles/hotd");
-  await hit("/go/hotd/0", { redirect: "manual" });
+  // 一个「真人」：带着 yt_vid Cookie，并且打过页面信标。
+  const visitor = "yt_vid=11111111-1111-1111-1111-111111111111";
+  const track = await hit("/api/track", {
+    method: "POST",
+    // cf-ipcountry 模拟 Cloudflare 边缘 GeoIP 的结果（本地没有 request.cf，走这个兜底分支）；
+    // cf-connecting-ip 是访客的真实来源地址，落进 events.ip。
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: visitor,
+      "cf-ipcountry": "US",
+      "cf-connecting-ip": "203.0.113.7"
+    },
+    body: JSON.stringify({ path: "/title", lang: "zh" })
+  });
+  check("页面信标 202", track.status === 202, `status=${track.status}`);
+  await hit("/api/search?q=" + encodeURIComponent("zzz-没有结果"), {
+    headers: { Cookie: visitor, "cf-ipcountry": "US", "cf-connecting-ip": "203.0.113.7" }
+  });
+  // 小程序没有 Cookie 罐：用 X-YT-Visitor 自报编号，打完页面信标同样算真实访客。
+  const wxVisitor = "22222222-2222-2222-2222-222222222222";
+  const wxTrack = await hit("/api/track", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-YT-Visitor": wxVisitor,
+      "cf-ipcountry": "CN",
+      "cf-connecting-ip": "203.0.113.90"
+    },
+    body: JSON.stringify({ path: "/search", lang: "zh" })
+  });
+  check("小程序访客编号可走 X-YT-Visitor，不再下发 Cookie",
+    wxTrack.status === 202 && !/yt_vid=/.test(wxTrack.headers.get("set-cookie") || ""),
+    `status=${wxTrack.status} set-cookie=${wxTrack.headers.get("set-cookie") || "无"}`);
+  // 无头浏览器：带 Cookie、也执行了页面脚本，但整个来源在 Scaleway 机房网段。
+  // ASN 判定的意义就在这里——光看页面信标会把它算成人。
+  const headless = await hitWithCf("/api/track", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: "yt_vid=33333333-3333-3333-3333-333333333333",
+      "cf-connecting-ip": "51.158.1.10"
+    },
+    body: JSON.stringify({ path: "/", lang: "en" })
+  }, { country: "FR", city: "Paris", asn: 12876, asOrganization: "Scaleway" });
+  check("机房来源的页面信标同样 202（只打标，不拦）", headless.status === 202, `status=${headless.status}`);
+  // 下面这三条故意不带 Cookie：模拟采集脚本，每次请求都会被铸一个新的访客编号。
+  await hit("/api/titles/hotd", { headers: { "cf-ipcountry": "RU", "cf-connecting-ip": "198.51.100.20" } });
+  await hit("/go/hotd/0", { redirect: "manual", headers: { "cf-connecting-ip": "198.51.100.20" } });
   await drain();
   const events = db.prepare("SELECT kind, COUNT(*) AS c FROM events GROUP BY kind").all();
   check("埋点写入 events 表", events.length >= 2, events.map((e) => `${e.kind}:${e.c}`).join(" "));
@@ -363,6 +417,64 @@ console.log("\n=== 埋点与看板 ===");
   const { response, body } = await hitJSON("/api/admin/dashboard?days=7", { headers: { Cookie: cookie } });
   check("后台看板", response.status === 200 && body.trend.length === 7 && body.overview.searches >= 1,
     `搜索 ${body && body.overview && body.overview.searches} / 浏览 ${body && body.overview && body.overview.views} / 跳转 ${body && body.overview && body.overview.clicks}`);
+  const overview = body.overview;
+  check("页面信标计入 PV 与路径分布", overview.pageviews >= 1
+    && (body.topPaths || []).some((entry) => entry.path === "/title" && entry.views >= 1)
+    && (body.langs || []).some((entry) => entry.lang === "zh" && entry.views >= 1),
+    `PV ${overview.pageviews} / 路径 ${(body.topPaths || []).map((p) => `${p.path}:${p.views}`).join(" ")}`);
+  const visitorIds = (body.visitors || []).map((entry) => entry.id);
+  check("只有打过信标、且不是机房来源的编号算真实访客", overview.visitors === 2
+    && overview.rawVisitors === overview.visitors + overview.botSuspects
+    && overview.botSuspects >= 3
+    && overview.hostingVisitors === 1
+    && visitorIds.includes("11111111-1111-1111-1111-111111111111")
+    && visitorIds.includes(wxVisitor)
+    && body.visitors[0].real === true
+    && body.visitors.every((entry) => entry.real === (entry.pages > 0 && !entry.hosting)),
+    `真实 ${overview.visitors} / 编号 ${overview.rawVisitors} / 疑似 ${overview.botSuspects} / 机房 ${overview.hostingVisitors}`);
+  check("日分桶按北京时间（UTC+8）切天", body.trend[body.trend.length - 1].date
+    === new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10),
+    `最后一天 ${body.trend[body.trend.length - 1].date}`);
+  check("访问地区按页面信标统计，疑似自动化来源单独给出",
+    (body.topGeo || []).some((entry) => entry.country === "US" && entry.label === "美国" && entry.views >= 1)
+    && (body.suspectGeo || []).some((entry) => entry.country === "RU" && entry.label === "俄罗斯"),
+    `真实 ${(body.topGeo || []).map((g) => `${g.label}:${g.views}`).join(" ")} / 疑似 ${(body.suspectGeo || []).map((g) => `${g.label}:${g.events}`).join(" ")}`);
+  const columns = db.prepare("PRAGMA table_info(events)").all().map((column) => column.name);
+  check("事件表带国家/城市/IP/ASN 列，仍然不落 UA",
+    columns.includes("country") && columns.includes("city") && columns.includes("ip")
+    && columns.includes("asn") && columns.includes("as_org")
+    && !columns.some((name) => /user_agent|fingerprint|(^|_)ua($|_)/i.test(name)),
+    columns.join(" "));
+
+  // 来源 IP 明细：真人（打过页面信标）与脚本（只打接口）要能按 IP 分开认出来。
+  const humanIp = (body.topIps || []).find((entry) => entry.ip === "203.0.113.7");
+  const botIp = (body.topIps || []).find((entry) => entry.ip === "198.51.100.20");
+  check("来源 IP 落库并进看板，UA 仍然不落",
+    Boolean(humanIp) && humanIp.real === true && humanIp.pages >= 1 && humanIp.label === "美国"
+    && Boolean(botIp) && botIp.real === false && botIp.events >= 2,
+    `真人 ${humanIp ? `${humanIp.ip}/${humanIp.label}/${humanIp.events}` : "缺"} / 脚本 ${botIp ? `${botIp.ip}/${botIp.events}` : "缺"}`);
+  const browserVisitor = (body.visitors || []).find((entry) => entry.id === "11111111-1111-1111-1111-111111111111");
+  check("访客编号带上来源 IP",
+    Boolean(browserVisitor) && browserVisitor.ip === "203.0.113.7" && browserVisitor.ips >= 1,
+    `访客 ${browserVisitor ? browserVisitor.label : "缺"} ← ${browserVisitor ? browserVisitor.ip || "无 IP" : ""}`);
+  // 机房来源：有页面信标，但 ASN 命中 Scaleway → 看板标成机房、不算真实来源，并排在最后。
+  const headlessIp = (body.topIps || []).find((entry) => entry.ip === "51.158.1.10");
+  check("ASN 与网络组织落库，机房来源被识别",
+    Boolean(headlessIp) && headlessIp.hosting === true && headlessIp.asn === 12876
+    && headlessIp.asOrg === "Scaleway" && headlessIp.real === false && headlessIp.pages === 1,
+    headlessIp ? `${headlessIp.ip}/${headlessIp.asOrg}/AS${headlessIp.asn}/机房=${headlessIp.hosting}` : "缺机房来源行");
+  const headlessVisitor = (body.visitors || []).find((entry) => entry.id === "33333333-3333-3333-3333-333333333333");
+  check("机房访客排在最后，并带上网络组织名",
+    Boolean(headlessVisitor) && headlessVisitor.hosting === true && headlessVisitor.real === false
+    && headlessVisitor.asOrg === "Scaleway"
+    && body.visitors[body.visitors.length - 1].id === headlessVisitor.id,
+    headlessVisitor ? `${headlessVisitor.label} 排第 ${body.visitors.findIndex((e) => e.id === headlessVisitor.id) + 1}/${body.visitors.length}` : "缺");
+  const stored = db.prepare("SELECT ip, country, asn, as_org FROM events WHERE ip IS NOT NULL").all();
+  check("IP 与地区、来源网络同批写入，非法值不会污染",
+    stored.length >= 5 && stored.every((row) => /^\d+\.\d+\.\d+\.\d+$/.test(row.ip))
+    && stored.some((row) => row.asn === 12876 && row.as_org === "Scaleway")
+    && stored.filter((row) => row.asn === null).length >= 4,
+    `${stored.length} 条带 IP，其中 ${stored.filter((row) => row.asn != null).length} 条带 ASN`);
 }
 {
   const feedback = await hit("/api/feedback", {
