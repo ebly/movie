@@ -367,6 +367,7 @@ function headerHTML({ compact = false, query = "" } = {}) {
     return `<header class="site-head">
       ${brandHTML()}
       <div class="head-actions">
+        <button class="quiet-btn" type="button" data-open-gzh>关注公众号</button>
         ${favoritesLinkHTML()}
         ${themeButtonHTML()}
         ${feedbackButtonHTML()}
