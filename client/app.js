@@ -2289,12 +2289,12 @@ function openGzhDialog() {
 }
 
 function maybeShowGzh() {
-  if (location.pathname.replace(/\/+$/, "") !== "/") return;
+  if ((location.pathname.replace(/\/+$/, "") || "/") !== "/") return;
   if (gzhShouldHide()) return;
   const dialog = bindGzhDialog();
   if (!dialog) return;
   setTimeout(() => {
-    if (location.pathname.replace(/\/+$/, "") !== "/") return;
+    if ((location.pathname.replace(/\/+$/, "") || "/") !== "/") return;
     if (gzhShouldHide()) return;
     if (!dialog.open) dialog.showModal();
   }, 1200);
