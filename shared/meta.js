@@ -314,6 +314,41 @@ function homeBody(items, brand, origin) {
   </div>`;
 }
 
+function crawlBody(entries, brand, origin) {
+  const brandText = brandName(brand);
+  const seen = new Set();
+  const list = [];
+  for (const entry of (Array.isArray(entries) ? entries : [])) {
+    if (!entry || typeof entry.title !== "string") continue;
+    const title = entry.title.trim();
+    const key = title.toLowerCase();
+    if (!title || seen.has(key)) continue;
+    seen.add(key);
+    list.push({ ...entry, title });
+    if (list.length >= 30) break;
+  }
+  if (!list.length) return "";
+  const rows = list.map((entry) => {
+    const label = entry.original ? `${entry.title}（${entry.original}）` : entry.title;
+    const bits = [entry.year, entry.type, entry.rating ? `★ ${Number(entry.rating).toFixed(1)}` : "", entry.note || ""]
+      .filter(Boolean).map(esc).join(" · ");
+    return `<li><a href="/search?q=${encodeURIComponent(entry.title)}">${esc(label)}</a>${bits ? ` — ${bits}` : ""}</li>`;
+  }).join("\n      ");
+  return `<div class="seo-static">
+    <header class="seo-head">
+      <h1>${esc(brandText)} — ${esc(brand.slogan || "")}</h1>
+      <p>${esc(brand.tagline || "")}。在 Netflix、Max、Apple TV+、Prime Video、Disney+ 与国内平台之间查找影视作品的观看入口。</p>
+    </header>
+    <section>
+      <h2>最新与热门作品</h2>
+      <ul class="seo-list">
+      ${rows}
+      </ul>
+    </section>
+    <p class="seo-links"><a href="/search">搜索影视剧与公开分享</a></p>
+  </div>`;
+}
+
 function detailBody(item, brand, providers) {
   const brandText = brandName(brand);
   const genres = Array.isArray(item.genres) && item.genres.length
@@ -473,6 +508,7 @@ module.exports = {
   homeMeta,
   shareMeta,
   homeBody,
+  crawlBody,
   detailBody,
   sitemapXML,
   robotsTxt,

@@ -971,6 +971,36 @@ function sendHTML(ctx, status, html, extraHeaders = {}) {
   return new Response(html, { status, headers });
 }
 
+async function homeCrawlBody(ctx) {
+  const entries = [];
+  try {
+    const mine = await catalogAll(ctx.env);
+    mine
+      .slice()
+      .sort((a, b) => (b.featured ? 1 : 0) - (a.featured ? 1 : 0) || (b.latest ? 1 : 0) - (a.latest ? 1 : 0) || b.id - a.id)
+      .forEach((entry) => entries.push({ title: entry.title, year: entry.year, type: entry.kind, rating: entry.rating, note: entry.note }));
+  } catch (err) {
+    // 片库读不到就只用豆瓣
+  }
+  try {
+    if (!doubanClients.has(ctx.env)) {
+      doubanClients.set(ctx.env, douban.createDoubanList({ logger: { warn() {} } }));
+    }
+    const list = await doubanClients.get(ctx.env).list({ kind: "latest", limit: 11 });
+    for (const item of (list.items || [])) {
+      entries.push({ title: item.title, original: item.original, year: item.year, type: item.type, rating: item.rating });
+    }
+  } catch (err) {
+    // 豆瓣不可用就只用片库
+  }
+  let body = meta.crawlBody(entries, BRAND, ctx.url.origin);
+  if (!body) {
+    const catalog = await getCatalog(ctx.env, ctx.url);
+    body = meta.homeBody(catalog.items, BRAND, ctx.url.origin);
+  }
+  return body;
+}
+
 async function handlePage(ctx, kind, id) {
   let result;
   let body = "";
@@ -986,9 +1016,8 @@ async function handlePage(ctx, kind, id) {
   } else if (kind === "share") {
     result = meta.shareMeta(id, BRAND, ctx.url.origin);
   } else {
-    const catalog = await getCatalog(ctx.env, ctx.url);
     result = meta.homeMeta(BRAND, ctx.url.origin);
-    body = meta.homeBody(catalog.items, BRAND, ctx.url.origin);
+    body = await homeCrawlBody(ctx);
   }
 
   const template = await assetText(ctx, "/index.html");
