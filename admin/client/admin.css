@@ -770,6 +770,7 @@ h1, h2, h3, p { margin: 0; }
 }
 .board-grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .board-grid.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.board-grid.one { grid-template-columns: 1fr; }
 .board-grid .span-2 { grid-column: span 2; }
 
 .rank-list { display: grid; gap: 2px; }

@@ -466,12 +466,7 @@ function dashboardHTML(data) {
     </div>
     <button class="btn-icon" type="button" data-refresh-dashboard title="刷新数据" aria-label="刷新数据">${ICONS.refresh}</button>`;
 
-  const providerOf = (id) => (state.meta.providers || []).find((item) => item.id === id);
   const LANG_NAMES = { zh: "中文", en: "English" };
-
-  const platforms = data.platforms || [];
-  const platformMax = Math.max(1, ...platforms.map((entry) => entry.clicks));
-  const platformRow = (entry) => barRow(entry.name, entry.clicks, platformMax, esc((providerOf(entry.id) || {}).color || "#a83232"));
 
   const paths = data.topPaths || [];
   const pathMax = Math.max(1, ...paths.map((entry) => entry.views));
@@ -597,9 +592,8 @@ function dashboardHTML(data) {
     ${listCard({ key: "zeroSearches", title: "搜索无结果", sub: "这些关键词没有匹配到片库，值得补片或加别名。", mono: "GAPS", listClass: "rank-list", entries: data.zeroSearches || [], row: zeroRow, empty: `<span class="check">✓</span>所有搜索都找到了结果。` })}
   </div>
 
-  <div class="board-grid">
+  <div class="board-grid one">
     ${listCard({ key: "topTitles", title: "热门作品", sub: "详情页浏览最多的作品，以及被带往平台的次数。", mono: "TITLES", listClass: "rank-list", entries: data.topTitles || [], row: titleRow, empty: "还没有作品浏览数据。" })}
-    ${listCard({ key: "platforms", title: "平台跳转", sub: "用户从详情页前往各正版平台的次数。", mono: "PLATFORMS", listClass: "bar-list", entries: platforms, row: platformRow, empty: "还没有平台跳转数据。" })}
   </div>
 
   <div class="board-grid four">
