@@ -390,6 +390,7 @@ function footerHTML() {
   return `<footer class="site-foot"><div class="foot-inner">
     <span class="foot-brand">${BRAND_MARK}${BRAND.name}</span>
     <span>${t("foot.tagline")}</span>
+    <button class="foot-gzh" type="button" data-open-gzh>关注公众号</button>
     <span class="foot-tmdb">海报与影视资料部分来自 <a href="https://www.themoviedb.org/" target="_blank" rel="noopener noreferrer nofollow">TMDB</a>。This product uses the TMDB API but is not endorsed or certified by TMDB.</span>
   </div></footer>`;
 }
