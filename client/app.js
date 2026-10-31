@@ -2260,7 +2260,9 @@ function bindGzhDialog() {
   dialog.dataset.bound = "1";
   const hint = dialog.querySelector("[data-gzh-hint]");
   if (hint && typeof matchMedia === "function") {
-    hint.textContent = matchMedia("(pointer: coarse)").matches ? "长按识别二维码" : "微信扫码关注";
+    hint.textContent = matchMedia("(pointer: coarse)").matches
+      ? "长按识别关注，新片上线第一时间提醒"
+      : "扫码关注，新片上线第一时间提醒";
   }
   const mute = dialog.querySelector("[data-gzh-mute]");
   const close = () => { if (dialog.open) dialog.close(); };

@@ -1678,7 +1678,7 @@ body.is-routing .view { opacity: .55; transition: opacity .12s ease; }
 .gzh-inner .sheet-close:hover { border-color: transparent; color: var(--text); opacity: 1; }
 .gzh-inner .sheet-close:focus-visible { outline: none; }
 .gzh-qr { width: 180px; height: 180px; object-fit: contain; background: #fff; padding: 6px; border-radius: 10px; border: 1px solid var(--line); }
-.gzh-hint { margin: 0; color: var(--muted); font-size: 12px; }
+.gzh-hint { margin: 0; color: var(--text-soft); font-size: 15px; font-weight: 600; line-height: 1.5; }
 .gzh-actions { display: flex; gap: 10px; margin-top: 2px; }
 .gzh-opt { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); cursor: pointer; }
 .gzh-opt input { width: auto; accent-color: var(--accent); }
