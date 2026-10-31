@@ -53,8 +53,24 @@
     </form>
   </dialog>
 
-  <script src="/i18n.js?v=20261031n"></script>
-  <script src="/api.js?v=20261031n"></script>
-  <script src="/app.js?v=20261031n"></script>
+  <dialog id="gzh-dialog" class="gzh-sheet" aria-labelledby="gzh-title">
+    <div class="gzh-inner">
+      <button type="button" class="sheet-close" data-close-gzh aria-label="关闭">×</button>
+      <span class="gzh-kicker">关注公众号</span>
+      <h2 id="gzh-title">新片上线，第一时间提醒你</h2>
+      <p class="gzh-copy">关注我们，最新电影、电视剧上线会通过公众号推送提醒。</p>
+      <img class="gzh-qr" src="/gzh-qr.jpg" alt="公众号二维码" width="180" height="180">
+      <p class="gzh-hint" data-gzh-hint>微信扫码关注</p>
+      <div class="gzh-actions">
+        <button type="button" class="primary-action" data-gzh-done>我已关注</button>
+        <button type="button" class="quiet-btn" data-close-gzh>稍后再说</button>
+      </div>
+      <label class="gzh-opt"><input type="checkbox" data-gzh-mute> 不再提示（7 天内不再弹）</label>
+    </div>
+  </dialog>
+
+  <script src="/i18n.js?v=20261031o"></script>
+  <script src="/api.js?v=20261031o"></script>
+  <script src="/app.js?v=20261031o"></script>
 </body>
 </html>

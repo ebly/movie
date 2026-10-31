@@ -390,6 +390,7 @@ function footerHTML() {
   return `<footer class="site-foot"><div class="foot-inner">
     <span class="foot-brand">${BRAND_MARK}${BRAND.name}</span>
     <span>${t("foot.tagline")}</span>
+    <button class="foot-gzh" type="button" data-open-gzh>关注公众号</button>
     <span class="foot-tmdb">海报与影视资料部分来自 <a href="https://www.themoviedb.org/" target="_blank" rel="noopener noreferrer nofollow">TMDB</a>。This product uses the TMDB API but is not endorsed or certified by TMDB.</span>
   </div></footer>`;
 }
@@ -937,6 +938,7 @@ function renderHome() {
   updateScrollState();
   loadLatestList();
   loadHotChips();
+  maybeShowGzh();
 }
 
 /* ---------------- 网盘公开分享搜索（PanSou：夸克 / 百度 / 迅雷 / 阿里） ---------------- */
@@ -1774,6 +1776,12 @@ function adoptLegacyHash() {
 /* ---------------- global events ---------------- */
 
 document.addEventListener("click", async (event) => {
+  const gzhOpen = event.target.closest("[data-open-gzh]");
+  if (gzhOpen) {
+    event.preventDefault();
+    openGzhDialog();
+    return;
+  }
   const link = event.target.closest("a[href]");
   if (link && !link.target && !link.hasAttribute("download") && !event.metaKey && !event.ctrlKey && !event.shiftKey && event.button === 0) {
     const href = link.getAttribute("href");
@@ -2217,5 +2225,78 @@ async function renderShare(id) {
   }
   body.innerHTML = `<div class="share-grid">${shareCardHTML(item)}</div>`;
   updateScrollState();
+}
+
+/* ---------------- 关注公众号弹框 ---------------- */
+
+const GZH_KEY = "yingtu-gzh-hide-until";
+const GZH_SESSION = "yingtu-gzh-session";
+const GZH_MUTE_DAYS = 7;
+const GZH_DONE_DAYS = 30;
+
+function gzhShouldHide() {
+  try {
+    const until = Number(localStorage.getItem(GZH_KEY));
+    if (Number.isFinite(until) && until > Date.now()) return true;
+  } catch (err) { /* ignore */ }
+  try {
+    if (sessionStorage.getItem(GZH_SESSION) === "1") return true;
+  } catch (err) { /* ignore */ }
+  return false;
+}
+
+function gzhRemember(days, session) {
+  try {
+    if (days > 0) localStorage.setItem(GZH_KEY, String(Date.now() + days * 86400000));
+    if (session) sessionStorage.setItem(GZH_SESSION, "1");
+  } catch (err) { /* ignore */ }
+}
+
+function bindGzhDialog() {
+  const dialog = document.getElementById("gzh-dialog");
+  if (!dialog) return null;
+  if (dialog.dataset.bound === "1") return dialog;
+  dialog.dataset.bound = "1";
+  const hint = dialog.querySelector("[data-gzh-hint]");
+  if (hint && typeof matchMedia === "function") {
+    hint.textContent = matchMedia("(pointer: coarse)").matches ? "长按识别二维码" : "微信扫码关注";
+  }
+  const mute = dialog.querySelector("[data-gzh-mute]");
+  const close = () => { if (dialog.open) dialog.close(); };
+  dialog.querySelectorAll("[data-close-gzh]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      gzhRemember(mute && mute.checked ? GZH_MUTE_DAYS : 0, true);
+      close();
+    });
+  });
+  const done = dialog.querySelector("[data-gzh-done]");
+  if (done) done.addEventListener("click", () => {
+    gzhRemember(GZH_DONE_DAYS, true);
+    close();
+  });
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog) {
+      gzhRemember(0, true);
+      close();
+    }
+  });
+  return dialog;
+}
+
+function openGzhDialog() {
+  const dialog = bindGzhDialog();
+  if (dialog && !dialog.open) dialog.showModal();
+}
+
+function maybeShowGzh() {
+  if (location.pathname.replace(/\/+$/, "") !== "/") return;
+  if (gzhShouldHide()) return;
+  const dialog = bindGzhDialog();
+  if (!dialog) return;
+  setTimeout(() => {
+    if (location.pathname.replace(/\/+$/, "") !== "/") return;
+    if (gzhShouldHide()) return;
+    if (!dialog.open) dialog.showModal();
+  }, 1200);
 }
 
