@@ -161,7 +161,18 @@ body.is-routing .view { opacity: .55; transition: opacity .12s ease; }
   color: var(--muted);
 }
 
-.head-actions { display: flex; align-items: center; gap: 8px; }
+/* 按钮组永远单行：子项不收缩、文字不断行，尺寸靠断点里的 --ctl-h 统一压缩 */
+.head-actions { --ctl-h: 38px; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.head-actions > * { flex: 0 0 auto; height: var(--ctl-h); }
+.head-actions .quiet-btn,
+.head-actions .lang-btn { white-space: nowrap; }
+/* 文字类按钮靠 flex 居中定高，别让 padding 撑出高度差 */
+.head-actions .quiet-btn,
+.head-actions .lang-btn,
+.head-actions .fav-link { display: inline-flex; align-items: center; justify-content: center; }
+.head-actions .icon-btn { width: var(--ctl-h); height: var(--ctl-h); }
+/* .fav-link 自己写了 height:38px，特异性相同且位置更靠后，这里必须两个 class 压过它 */
+.head-actions .fav-link { height: var(--ctl-h); }
 
 /* 右上角语言开关：显示点击后会切到的那门语言 */
 .lang-btn {
@@ -1382,7 +1393,17 @@ body.is-routing .view { opacity: .55; transition: opacity .12s ease; }
 }
 
 @media (max-width: 760px) {
-  .site-head { padding: 18px 20px; }
+  .site-head { padding: 16px 18px; gap: 12px; }
+  .head-actions { --ctl-h: 34px; gap: 6px; }
+  .head-actions .quiet-btn { padding: 0 11px; font-size: 12px; }
+  .head-actions .icon-btn svg { width: 16px; height: 16px; }
+  .head-actions .fav-link { padding: 0 12px; font-size: 12.5px; }
+  .head-actions .fav-link svg { width: 15px; height: 15px; }
+  .head-actions .fav-link b { min-width: 17px; height: 17px; line-height: 17px; font-size: 10.5px; }
+  .head-actions .lang-btn { min-width: 38px; padding: 0 9px; font-size: 11.5px; }
+  .brand { gap: 9px; }
+  .brand-mark { width: 26px; height: 26px; }
+  .brand-word { font-size: 22px; }
   .sub-head { padding: 12px 16px; }
   .home-main { padding: 16px 20px 40px; }
   .magazine-page { padding: 22px 20px 56px; }
@@ -1398,6 +1419,17 @@ body.is-routing .view { opacity: .55; transition: opacity .12s ease; }
 
 @media (max-width: 480px) {
   body { font-size: 15px; }
+  .site-head { padding: 14px 14px; gap: 10px; }
+  .head-actions { --ctl-h: 30px; gap: 5px; }
+  .head-actions .quiet-btn { padding: 0 9px; font-size: 11.5px; }
+  .head-actions .icon-btn svg { width: 14px; height: 14px; }
+  .head-actions .fav-link { padding: 0 10px; gap: 5px; }
+  .head-actions .fav-link svg { width: 14px; height: 14px; }
+  .head-actions .fav-link b { min-width: 16px; height: 16px; line-height: 16px; padding: 0 4px; font-size: 10px; }
+  .head-actions .lang-btn { min-width: 32px; padding: 0 7px; font-size: 11px; }
+  .brand { gap: 8px; }
+  .brand-mark { width: 23px; height: 23px; }
+  .brand-word { font-size: 19px; letter-spacing: .04em; }
   .display-title { font-size: clamp(32px, 9vw, 40px); }
   .search-field { padding: 6px 6px 6px 14px; }
   .search-submit { padding: 9px 18px; }
@@ -1411,6 +1443,16 @@ body.is-routing .view { opacity: .55; transition: opacity .12s ease; }
   .offer-price { order: 3; }
   .offer-cta { order: 4; margin-left: auto; }
   .sheet-inner { padding: 22px 20px 20px; }
+}
+
+/* 超窄屏（≤340，如 iPhone SE 一代）：藏起品牌文字只留图标，空间全给按钮组，保证仍是一行 */
+@media (max-width: 340px) {
+  .site-head { padding: 12px 10px; gap: 8px; }
+  .head-actions { --ctl-h: 28px; gap: 4px; }
+  .head-actions .quiet-btn { padding: 0 8px; }
+  .head-actions .lang-btn { min-width: 28px; padding: 0 6px; }
+  .brand { gap: 0; }
+  .brand-word { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1591,6 +1633,8 @@ body.is-routing .view { opacity: .55; transition: opacity .12s ease; }
 .pan-password code { user-select: all; color: var(--text); }
 .pan-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
 .pan-view .quiet-btn, .pan-actions .chip { min-height: 40px; }
+/* 上面的 40px 只该作用于正文操作按钮；.pan-view 把 header 也包进来了，这里把头部按钮还原成统一高度 */
+.head-actions .quiet-btn { min-height: var(--ctl-h); }
 .pan-invalid { color: var(--warning); font-size: 12px; }
 .pan-pagination { margin: 28px 0; display: flex; align-items: center; flex-wrap: wrap; justify-content: center; gap: 14px; }
 .pan-page-links { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; }
