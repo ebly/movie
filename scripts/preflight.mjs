@@ -60,6 +60,26 @@ if (exists("client/index.html")) {
     .filter((ref) => !/^(https?:|data:|\/|#|mailto:)/.test(ref));
   if (relative.length) add("fail", "index.html 有相对路径资源", relative.join(", "), "改成 /styles.css 这类绝对路径");
   else add("ok", "index.html 资源均为绝对路径");
+
+  // 资源版本号：改了 CSS/JS 却没换 ?v=，客户端会继续吃 max-age 缓存，白改
+  for (const [asset, re] of [
+    ["client/styles.css", /styles\.css\?v=(\d{8})[a-z]?/],
+    ["client/app.js", /app\.js\?v=(\d{8})[a-z]?/]
+  ]) {
+    if (!exists(asset)) continue;
+    const m = re.exec(html);
+    if (!m) {
+      add("warn", `${asset} 没有版本号`, "改了也不会更新到客户端", "加上 ?v=YYYYMMDDx");
+      continue;
+    }
+    const d = fs.statSync(path.join(ROOT, asset)).mtime;
+    const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+    if (stamp > m[1]) {
+      add("warn", `${asset} 改过但版本号没换`, `文件 ${stamp} / 引用 ${m[1]}`, `把 ?v=${m[1]} 改成 ?v=${stamp}a`);
+    } else {
+      add("ok", `${asset} 版本号是新的`, `?v=${m[1]}`);
+    }
+  }
 } else {
   add("fail", "缺少 client/index.html");
 }
