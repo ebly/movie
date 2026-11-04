@@ -3,6 +3,7 @@
 const fs = require("fs");
 const path = require("path");
 const meta = require("../shared/meta.js");
+const GZH_ARTICLES = require("../config/gzh-articles.json");
 
 /**
  * Node 端的页面外壳渲染：读取 client/index.html 并注入 meta。
@@ -53,8 +54,13 @@ class PageRenderer {
     );
   }
 
+  /** /gzh 是独立整页（不进 SPA 外壳）：SPA 会接管路由，把目录内容盖掉。 */
+  gzh(origin) {
+    return { status: 200, html: meta.gzhPage(this.brand, GZH_ARTICLES, origin) };
+  }
+
   sitemap(origin) {
-    return meta.sitemapXML(this.repository.all(), origin);
+    return meta.sitemapXML(this.repository.all(), origin, this.brand);
   }
 
   robots(origin) {

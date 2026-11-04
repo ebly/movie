@@ -7,7 +7,7 @@
  * 这些字段一旦跟着 /api/bootstrap 发出去，等于把后台密码广播给全网。
  * 所以任何返回给浏览器的品牌对象都必须过一遍这里。
  */
-const PUBLIC_FIELDS = ["name", "latin", "slug", "tagline", "slogan", "disclaimer"];
+const PUBLIC_FIELDS = ["name", "latin", "slug", "tagline", "slogan", "disclaimer", "wechat"];
 
 function publicBrand(brand) {
   const source = brand && typeof brand === "object" ? brand : {};

@@ -98,6 +98,8 @@ function createApp(options = {}) {
         page = pages.search(url, origin);
       } else if (pathname === "/list" || pathname === "/list/") {
         page = pages.list(url, origin);
+      } else if (pathname === "/gzh" || pathname === "/gzh/") {
+        page = pages.gzh(origin);
       } else {
         const titleMatch = /^\/title\/([^/]+)\/?$/.exec(pathname);
         if (titleMatch) {

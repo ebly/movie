@@ -18,6 +18,7 @@ import { createAdminAuth, parseCookies, secureFlag } from "./adminAuth.js";
 import meta from "../shared/meta.js";
 import tmdb from "../shared/tmdb.js";
 import brandUtil from "../shared/brand.js";
+import GZH_ARTICLES from "../config/gzh-articles.json";
 import pansou from "../shared/pansou.js";
 import douban from "../shared/douban.js";
 import geo from "../shared/geo.js";
@@ -1027,13 +1028,17 @@ async function handlePage(ctx, kind, id) {
   return sendHTML(ctx, result.status, meta.inject(template, result.meta, body), headers);
 }
 
+async function handleGzh(ctx) {
+  return sendHTML(ctx, 200, meta.gzhPage(BRAND, GZH_ARTICLES, ctx.url.origin));
+}
+
 async function handleSitemap(ctx) {
   const catalog = await getCatalog(ctx.env, ctx.url);
   const headers = buildHeaders(ctx, 200, {
     "Content-Type": "application/xml; charset=utf-8",
     "Cache-Control": "public, max-age=3600"
   });
-  return new Response(meta.sitemapXML(catalog.items, ctx.url.origin), { status: 200, headers });
+  return new Response(meta.sitemapXML(catalog.items, ctx.url.origin, BRAND), { status: 200, headers });
 }
 
 async function handleLlms(ctx) {
@@ -1116,6 +1121,7 @@ export default {
       if (path === "/" || path === "/index.html") return await handlePage(ctx, "home");
       if (path === "/search" || path === "/search/") return await handlePage(ctx, "search");
       if (path === "/list" || path === "/list/") return await handlePage(ctx, "list");
+      if (path === "/gzh" || path === "/gzh/") return await handleGzh(ctx);
 
       const titlePage = /^\/title\/([^/]+)\/?$/.exec(path);
       if (titlePage) {

@@ -102,6 +102,26 @@ describe("页面外壳与 SEO", () => {
     assert.match(home.body, /property="og:image" content="http:\/\/127\.0\.0\.1:\d+\/icon-512\.png"/);
   });
 
+  test("站点与公众号绑定为同一实体（GEO）", async () => {
+    const home = await html("/");
+    assert.match(home.body, /class="seo-gzh"/);
+    assert.match(home.body, /微信公众号「映途影视」/);
+    // alternateName 让 AI 把「映途影视」认作本站别名，而不是同名公司
+    assert.match(home.body, /"alternateName":"映途影视"/);
+    const detail = await html("/title/hotd");
+    assert.match(detail.body, /class="seo-gzh"/);
+  });
+
+  test("/gzh 公众号文章目录是独立可索引整页，不被 SPA 外壳盖掉", async () => {
+    const page = await html("/gzh");
+    assert.equal(page.status, 200);
+    assert.match(page.body, /<h1>微信公众号「映途影视」文章目录<\/h1>/);
+    assert.match(page.body, /rel="canonical" href="http:\/\/127\.0\.0\.1:\d+\/gzh"/);
+    assert.match(page.body, /https:\/\/mp\.weixin\.qq\.com\/s\//);
+    assert.match(page.body, /"@type":"CollectionPage"/);
+    assert.doesNotMatch(page.body, /id="app"/);
+  });
+
   test("详情页正文、面包屑、评分与观看渠道结构化数据齐全", async () => {
     const page = await html("/title/hotd");
     assert.match(page.body, /class="seo-static"/);
@@ -127,6 +147,7 @@ describe("页面外壳与 SEO", () => {
     assert.match(response.headers.get("content-type") || "", /text\/plain/);
     const body = await response.text();
     assert.match(body, /^# 映途/);
+    assert.match(body, /## 微信公众号/);
     assert.match(body, /\]\(http:\/\/127\.0\.0\.1:\d+\/title\//);
     assert.match(body, /sitemap\.xml/);
   });

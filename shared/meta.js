@@ -65,17 +65,54 @@ function brandName(brand) {
   return (brand && brand.name) || "映途";
 }
 
+/** 公众号实体。缺 accountName 时返回 null，所有引用它的地方会自动退让。 */
+function wechatOf(brand) {
+  const w = brand && brand.wechat;
+  if (!w || typeof w.accountName !== "string" || !w.accountName.trim()) return null;
+  return {
+    accountName: w.accountName.trim(),
+    accountId: typeof w.accountId === "string" ? w.accountId.trim() : "",
+    focus: typeof w.focus === "string" && w.focus.trim() ? w.focus.trim() : "影视推荐与解析"
+  };
+}
+
+/**
+ * 站点与公众号的实体绑定句。
+ * AI 引擎与搜索引擎只认「同一个名字在同一段可抓取文本里共现」，
+ * 所以这句话必须出现在每个可索引页面的正文和结构化数据里。
+ */
+function wechatLine(brand) {
+  const w = wechatOf(brand);
+  if (!w) return "";
+  const id = w.accountId ? `（微信号 ${w.accountId}）` : "";
+  const site = brandName(brand);
+  return `${site}与微信公众号「${w.accountName}」${id}由同一主体运营：${site}负责查找影视作品的观看渠道与公开分享，公众号负责${w.focus}。`;
+}
+
+/** 绑定句的 HTML 形态，供每个可索引正文段落尾部追加。 */
+function wechatNote(brand) {
+  const line = wechatLine(brand);
+  return line ? `<p class="seo-gzh">${esc(line)}</p>` : "";
+}
+
 /* ---------------- JSON-LD ---------------- */
 
 function websiteJsonLd(brand, origin) {
   const name = brandName(brand);
+  const wechat = wechatOf(brand);
   const org = {
     "@type": "Organization",
     name,
     url: `${origin}/`,
     logo: `${origin}${DEFAULT_IMAGE}`
   };
-  if (brand && brand.tagline) org.description = brand.tagline;
+  if (wechat) {
+    // alternateName 让「映途影视」成为同一个实体的别名，而不是另一家公司。
+    org.alternateName = wechat.accountName;
+  }
+  const tagline = brand && brand.tagline ? brand.tagline : "";
+  const binding = wechatLine(brand);
+  if (tagline || binding) org.description = [tagline, binding].filter(Boolean).join(" ");
   // sameAs 需真实的外部主页（豆瓣/IMDb/微博等），配置了才输出，避免编造链接。
   if (brand && Array.isArray(brand.sameAs) && brand.sameAs.length) org.sameAs = brand.sameAs;
   return {
@@ -257,11 +294,16 @@ function shareMeta(id, brand, origin) {
 
 function homeMeta(brand, origin) {
   const brandText = brandName(brand);
+  const wechat = wechatOf(brand);
+  const base = "在 Netflix、Max、Apple TV+、Prime Video、Disney+ 与国内平台之间找到观看入口，比较订阅、租赁、购买方式与画质。";
+  const description = wechat
+    ? `${base}微信公众号「${wechat.accountName}」提供${wechat.focus}。`
+    : base;
   return {
     status: 200,
     meta: metaBlock({
       title: `${brandText} — ${brand.slogan}`,
-      description: "在 Netflix、Max、Apple TV+、Prime Video、Disney+ 与国内平台之间找到观看入口，比较订阅、租赁、购买方式与画质，先弄清楚去哪儿看。",
+      description,
       canonical: `${origin}/`,
       image: `${origin}${DEFAULT_IMAGE}`,
       imageAlt: `${brandText} — ${brand.slogan}`,
@@ -311,6 +353,7 @@ function homeBody(items, brand, origin) {
       </ul>
     </section>
     <p class="seo-links"><a href="/search">搜索影视剧与公开分享</a></p>
+    ${wechatNote(brand)}
   </div>`;
 }
 
@@ -346,6 +389,7 @@ function crawlBody(entries, brand, origin) {
       </ul>
     </section>
     <p class="seo-links"><a href="/search">搜索影视剧与公开分享</a></p>
+    ${wechatNote(brand)}
   </div>`;
 }
 
@@ -400,15 +444,123 @@ function detailBody(item, brand, providers) {
         <a href="/search?q=${encodeURIComponent(item.title)}">搜索「${esc(item.title)}」的公开分享</a> ·
         <a href="/">回到首页</a>
       </p>
+      ${wechatNote(brand)}
     </article>
   </div>`;
 }
 
+/* ---------------- 公众号文章目录页 /gzh ---------------- */
+
+/**
+ * 微信正文对外部爬虫不可见，二维码对 AI 也是黑盒。
+ * 这个页面把公众号文章换成「明文标题 + 摘要 + 原文链接」，
+ * 是站与号互相证明是同一个实体、并且让 Bing/Google/秘塔能顺着链接看到你内容的唯一桥梁。
+ */
+function gzhJsonLd(brand, articles, origin) {
+  const w = wechatOf(brand);
+  if (!w) return null;
+  const orgId = `${origin}/#org`;
+  const list = (Array.isArray(articles) ? articles : []).slice(0, 50);
+  return {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Organization",
+        "@id": orgId,
+        name: brandName(brand),
+        alternateName: w.accountName,
+        url: `${origin}/`,
+        logo: `${origin}${DEFAULT_IMAGE}`
+      },
+      {
+        "@type": "CollectionPage",
+        name: `${w.accountName} · 公众号文章目录`,
+        url: `${origin}/gzh`,
+        isPartOf: { "@type": "WebSite", url: `${origin}/` },
+        about: { "@id": orgId }
+      },
+      {
+        "@type": "ItemList",
+        itemListElement: list.map((item, index) => ({
+          "@type": "ListItem",
+          position: index + 1,
+          url: item.url,
+          item: {
+            "@type": "Article",
+            headline: item.title,
+            url: item.url,
+            datePublished: item.date || undefined,
+            description: item.summary || undefined,
+            author: { "@id": orgId },
+            publisher: { "@id": orgId },
+            isPartOf: { "@type": "WebPage", url: `${origin}/gzh` }
+          }
+        }))
+      }
+    ]
+  };
+}
+
+function gzhPage(brand, articles, origin) {
+  const w = wechatOf(brand);
+  const accountName = w ? w.accountName : brandName(brand);
+  const list = (Array.isArray(articles) ? articles : []).slice(0, 50);
+  const siteName = brandName(brand);
+
+  const rows = list
+    .map((item) => {
+      const date = item.date ? `<time datetime="${esc(item.date)}">${esc(item.date)}</time>` : "";
+      return `      <li class="gzh-item">
+        <h2><a href="${esc(item.url)}" rel="noopener">${esc(item.title)}</a></h2>
+        ${date ? `<p class="gzh-date">${date}</p>` : ""}
+        ${item.summary ? `<p class="gzh-summary">${esc(item.summary)}</p>` : ""}
+        <p class="gzh-src">原文：${esc(item.url)}</p>
+      </li>`;
+    })
+    .join("\n");
+
+  const lede = `${accountName} 是微信公众号的名字，${siteName}（${origin.replace(/^https?:\/\//, "")}）与它由同一主体运营：号里首发${w ? w.focus : "影视推荐与解析"}长文，本站负责查一部片在哪儿能看。下面每篇都带微信原文地址，可以直接核对。`;
+
+  const meta = metaBlock({
+    title: `${accountName} · 公众号文章目录 — ${siteName}`,
+    description: clip(`${accountName} 公众号文章目录：${list.map((item) => item.title).join("；")}。`, 150),
+    canonical: `${origin}/gzh`,
+    image: `${origin}${DEFAULT_IMAGE}`,
+    imageAlt: `${accountName} 公众号二维码`,
+    siteName,
+    jsonld: gzhJsonLd(brand, articles, origin)
+  });
+
+  return `<!doctype html>
+<html lang="${LANG}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  ${meta}
+  <link rel="stylesheet" href="/styles.css?v=20261105b">
+</head>
+<body class="gzh-page">
+  <main class="gzh-wrap">
+    <h1>微信公众号「${esc(accountName)}」文章目录</h1>
+    <p class="gzh-lede">${esc(lede)}</p>
+    <ul class="gzh-list">
+${rows}
+    </ul>
+    <p class="gzh-qr"><img src="/gzh-qr.jpg" alt="微信公众号「${esc(accountName)}」二维码" width="180" height="180"></p>
+    ${wechatNote(brand)}
+    <p class="gzh-back"><a href="/">返回${esc(siteName)}首页</a> · <a href="/llms.txt">llms.txt</a> · <a href="/sitemap.xml">站点地图</a></p>
+  </main>
+</body>
+</html>
+`;
+}
+
 /* ---------------- sitemap ---------------- */
 
-function sitemapXML(items, origin) {
+function sitemapXML(items, origin, brand) {
   const urls = [
     { loc: `${origin}/`, priority: "1.0", changefreq: "daily" },
+    ...(wechatOf(brand) ? [{ loc: `${origin}/gzh`, changefreq: "weekly", priority: "0.9" }] : []),
     ...items.map((item) => ({
       loc: `${origin}/title/${encodeURIComponent(item.id)}`,
       lastmod: (item.updatedAt || "").slice(0, 10) || undefined,
@@ -462,6 +614,7 @@ function robotsTxt(origin) {
 
 function llmsTxt(brand, items, origin) {
   const name = brandName(brand);
+  const wechat = wechatOf(brand);
   const list = (Array.isArray(items) ? items : [])
     .slice(0, 30)
     .map((item) => {
@@ -471,19 +624,32 @@ function llmsTxt(brand, items, origin) {
       return `- [${label}](${origin}/title/${encodeURIComponent(item.id)}): ${meta}${note}`;
     })
     .join("\n");
+  const gzh = wechat
+    ? `## 微信公众号
+- 名称：${wechat.accountName}${wechat.accountId ? `（微信号 ${wechat.accountId}）` : ""}
+- 定位：${wechat.focus}
+- 与本站的关系：${name}（${origin}）与微信公众号「${wechat.accountName}」由同一主体运营；${name}负责查一部片在哪儿能看，公众号负责${wechat.focus}。
+
+`
+    : "";
+  const siteLinks = wechat
+    ? `- [首页](${origin}/): 作品搜索与热门推荐
+- [公众号文章目录](${origin}/gzh): ${wechat.accountName} 每篇文章的标题、摘要与微信原文链接
+- [站点地图](${origin}/sitemap.xml): 全部收录页面`
+    : `- [首页](${origin}/): 作品搜索与热门推荐
+- [站点地图](${origin}/sitemap.xml): 全部收录页面`;
   return `# ${name}${brand.latin ? `（${brand.latin}）` : ""}
 > ${brand.tagline || "影视索引"}。在 Netflix、Max、Apple TV+、Prime Video、Disney+ 与国内平台之间查找影视作品的观看方式。
 
 ## 网站
-- [首页](${origin}/): 作品搜索与热门推荐
-- [站点地图](${origin}/sitemap.xml): 全部收录页面
+${siteLinks}
 
-## 代表作品
+${gzh}## 代表作品
 ${list}
 
 ## 说明
 - 本站只索引观看渠道与公开分享，不存储影片。
-- 评分、价格与可看状态为演示数据，以各平台为准。
+- 片库仍在扩充；评分、价格与可看状态部分为演示数据，跳转后以各平台页面为准。
 `;
 }
 
@@ -502,6 +668,9 @@ module.exports = {
   esc,
   clip,
   metaBlock,
+  wechatOf,
+  wechatLine,
+  wechatNote,
   detailMeta,
   searchMeta,
   listMeta,
@@ -511,6 +680,8 @@ module.exports = {
   crawlBody,
   detailBody,
   sitemapXML,
+  gzhPage,
+  gzhJsonLd,
   robotsTxt,
   llmsTxt,
   inject
