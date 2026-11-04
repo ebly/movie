@@ -1721,9 +1721,29 @@ body.is-routing .view { opacity: .55; transition: opacity .12s ease; }
 }
 .gzh-inner .sheet-close:hover { border-color: transparent; color: var(--text); opacity: 1; }
 .gzh-inner .sheet-close:focus-visible { outline: none; }
-.gzh-qr { width: 180px; height: 180px; object-fit: contain; background: #fff; padding: 6px; border-radius: 10px; border: 1px solid var(--line); }
-.gzh-hint { margin: 0; color: var(--text-soft); font-size: 15px; font-weight: 600; line-height: 1.5; }
+.gzh-inner .gzh-qr { width: 180px; height: 180px; object-fit: contain; background: #fff; padding: 6px; border-radius: 10px; border: 1px solid var(--line); }
+.gzh-hint { margin: 0; color: var(--text-soft); font-size: 15px; font-weight: 600; line-height: 1.5; white-space: pre-line; }
 .gzh-actions { display: flex; gap: 10px; margin-top: 2px; }
 .gzh-opt { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); cursor: pointer; }
 .gzh-opt input { width: auto; accent-color: var(--accent); }
-@media (max-width: 420px) { .gzh-qr { width: 150px; height: 150px; } }
+@media (max-width: 420px) { .gzh-inner .gzh-qr { width: 150px; height: 150px; } }
+
+/* /gzh 公众号文章目录：独立整页，不进 SPA 外壳 */
+.gzh-wrap { max-width: 720px; margin: 0 auto; padding: 48px 24px 64px; display: grid; gap: 18px; }
+.gzh-wrap h1 { margin: 0; font-family: var(--font-display); font-size: 28px; line-height: 1.3; }
+.gzh-lede { margin: 0; color: var(--text-soft); font-size: 14px; line-height: 1.75; }
+.gzh-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+.gzh-item { border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--surface); padding: 16px 18px; display: grid; gap: 8px; }
+.gzh-item h2 { margin: 0; font-size: 17px; line-height: 1.5; }
+.gzh-item h2 a { color: var(--text); text-decoration: none; }
+.gzh-item h2 a:hover { color: var(--accent-deep); }
+.gzh-date { margin: 0; font-size: 11.5px; color: var(--muted); }
+.gzh-summary { margin: 0; font-size: 13.5px; line-height: 1.7; color: var(--text-soft); }
+.gzh-src { margin: 0; font-size: 11.5px; color: var(--muted); word-break: break-all; }
+.gzh-page .gzh-qr { margin: 0; }
+.gzh-page .gzh-qr img { width: 180px; height: 180px; background: #fff; padding: 6px; border-radius: 10px; border: 1px solid var(--line); }
+.gzh-back { margin: 0; font-size: 13px; }
+.gzh-back a { color: var(--accent); text-decoration: none; }
+.gzh-back a:hover { color: var(--accent-deep); }
+.seo-gzh { margin: 0; font-size: 12.5px; line-height: 1.7; color: var(--muted); }
+@media (max-width: 520px) { .gzh-wrap { padding: 32px 16px 48px; } .gzh-wrap h1 { font-size: 23px; } }

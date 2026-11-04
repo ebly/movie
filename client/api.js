@@ -8,7 +8,8 @@ let BRAND = {
   latin: "Yingtu",
   slug: "yingtu",
   tagline: "影视索引与公开分享搜索",
-  slogan: "查找影视作品与公开分享"
+  slogan: "查找影视作品与公开分享",
+  wechat: { accountName: "映途影视", accountId: "", focus: "电影推荐与电视剧解析" }
 };
 
 const API = (() => {

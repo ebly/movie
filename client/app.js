@@ -387,11 +387,16 @@ function headerHTML({ compact = false, query = "" } = {}) {
   </header>`;
 }
 
+function gzhFootButton() {
+  const account = gzhAccountName();
+  return `<button class="foot-gzh" type="button" data-open-gzh>关注公众号${account ? `「${account}」` : ""}</button>`;
+}
+
 function footerHTML() {
   return `<footer class="site-foot"><div class="foot-inner">
     <span class="foot-brand">${BRAND_MARK}${BRAND.name}</span>
     <span>${t("foot.tagline")}</span>
-    <button class="foot-gzh" type="button" data-open-gzh>关注公众号</button>
+    ${gzhFootButton()}
     <span class="foot-tmdb">海报与影视资料部分来自 <a href="https://www.themoviedb.org/" target="_blank" rel="noopener noreferrer nofollow">TMDB</a>。This product uses the TMDB API but is not endorsed or certified by TMDB.</span>
   </div></footer>`;
 }
@@ -934,7 +939,7 @@ function renderHome() {
         </aside>
       </section>
     </main>
-    <div class="home-foot">${t("home.foot", { name: BRAND.name })}</div>
+    <div class="home-foot">${t("home.foot", { name: BRAND.name })}<br>${gzhFootButton()}</div>
   </div>`;
   updateScrollState();
   loadLatestList();
@@ -2253,17 +2258,32 @@ function gzhRemember(days, session) {
   } catch (err) { /* ignore */ }
 }
 
+function gzhAccountName() {
+  const account = BRAND && BRAND.wechat && typeof BRAND.wechat.accountName === "string"
+    ? BRAND.wechat.accountName.trim()
+    : "";
+  return account;
+}
+
+function gzhHintText(coarse) {
+  const account = gzhAccountName();
+  const verb = coarse ? "长按识别" : "扫码关注";
+  const target = account ? `${verb}微信公众号「${account}」` : verb;
+  return `${target}\n新片上线第一时间提醒`;
+}
+
+function syncGzhHint(dialog) {
+  const hint = dialog.querySelector("[data-gzh-hint]");
+  if (!hint || typeof matchMedia !== "function") return;
+  hint.textContent = gzhHintText(matchMedia("(pointer: coarse)").matches);
+}
+
 function bindGzhDialog() {
   const dialog = document.getElementById("gzh-dialog");
   if (!dialog) return null;
+  syncGzhHint(dialog);
   if (dialog.dataset.bound === "1") return dialog;
   dialog.dataset.bound = "1";
-  const hint = dialog.querySelector("[data-gzh-hint]");
-  if (hint && typeof matchMedia === "function") {
-    hint.textContent = matchMedia("(pointer: coarse)").matches
-      ? "长按识别关注，新片上线第一时间提醒"
-      : "扫码关注，新片上线第一时间提醒";
-  }
   const mute = dialog.querySelector("[data-gzh-mute]");
   const close = () => { if (dialog.open) dialog.close(); };
   dialog.querySelectorAll("[data-close-gzh]").forEach((btn) => {
@@ -2288,7 +2308,10 @@ function bindGzhDialog() {
 
 function openGzhDialog() {
   const dialog = bindGzhDialog();
-  if (dialog && !dialog.open) dialog.showModal();
+  if (dialog && !dialog.open) {
+    syncGzhHint(dialog);
+    dialog.showModal();
+  }
 }
 
 function maybeShowGzh() {
@@ -2299,6 +2322,7 @@ function maybeShowGzh() {
   setTimeout(() => {
     if ((location.pathname.replace(/\/+$/, "") || "/") !== "/") return;
     if (gzhShouldHide()) return;
+    syncGzhHint(dialog);
     if (!dialog.open) dialog.showModal();
   }, 1200);
 }
