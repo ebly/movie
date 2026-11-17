@@ -466,10 +466,6 @@ function dashboardHTML(data) {
     </div>
     <button class="btn-icon" type="button" data-refresh-dashboard title="刷新数据" aria-label="刷新数据">${ICONS.refresh}</button>`;
 
-  const paths = data.topPaths || [];
-  const pathMax = Math.max(1, ...paths.map((entry) => entry.views));
-  const pageRow = (entry) => barRow(entry.path, entry.views, pathMax, "var(--amber)");
-
   const geo = data.topGeo || [];
   const geoMax = Math.max(1, ...geo.map((entry) => entry.views));
   const geoRow = (entry) => barRow(entry.label, entry.views, geoMax, "var(--amber)");
@@ -590,8 +586,7 @@ function dashboardHTML(data) {
     ${listCard({ key: "topTitles", title: "热门作品", sub: "详情页浏览最多的作品，以及被带往平台的次数。", mono: "TITLES", listClass: "rank-list", entries: data.topTitles || [], row: titleRow, empty: "还没有作品浏览数据。" })}
   </div>
 
-  <div class="board-grid three">
-    ${listCard({ key: "topPaths", title: "页面访问", sub: `前台页面信标的落点，共 ${num(overview.pageviews)} 次。`, mono: "PAGES", listClass: "bar-list", entries: paths, row: pageRow, empty: "还没有页面访问数据。" })}
+  <div class="board-grid">
     ${listCard({ key: "topGeo", title: "访问地区", sub: "Cloudflare 边缘 GeoIP 解析出的国家与城市，只算打过页面信标的访客。", mono: "GEO", listClass: "bar-list", entries: geo, row: geoRow, empty: "还没有地区数据。", extra: suspectGeoNote })}
     ${listCard({ key: "topIps", title: "访问来源", sub: "访客的真实 IP，按最近访问时间排序；压暗的行是没执行页面脚本或来自机房、代理网段的来源。", mono: "SOURCE IP", listClass: "ip-list", entries: data.topIps || [], row: ipRow, empty: "还没有来源 IP 数据。" })}
   </div>
