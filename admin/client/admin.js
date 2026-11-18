@@ -466,6 +466,10 @@ function dashboardHTML(data) {
     </div>
     <button class="btn-icon" type="button" data-refresh-dashboard title="刷新数据" aria-label="刷新数据">${ICONS.refresh}</button>`;
 
+  // 机房 / 代理来源按要求全部隐藏：在看板展示层直接过滤，后台统计口径与原始数据保持不变。
+  const topIps = (data.topIps || []).filter((entry) => !entry.hosting);
+  const visitors = (data.visitors || []).filter((entry) => !entry.hosting);
+
   const geo = data.topGeo || [];
   const geoMax = Math.max(1, ...geo.map((entry) => entry.views));
   const geoRow = (entry) => barRow(entry.label, entry.views, geoMax, "var(--amber)");
@@ -551,11 +555,9 @@ function dashboardHTML(data) {
       label: "真实访客",
       value: overview.visitors,
       change: data.comparison.visitors,
-      note: overview.hostingVisitors
-        ? `已排除 ${overview.hostingVisitors} 个机房来源，另有 ${overview.botSuspects} 个编号未执行页面脚本`
-        : overview.botSuspects
-          ? `另有 ${overview.botSuspects} 个编号未执行页面脚本`
-          : "只计执行过页面脚本的匿名编号",
+      note: overview.botSuspects
+        ? `另有 ${overview.botSuspects} 个编号未执行页面脚本`
+        : "只计执行过页面脚本的匿名编号",
       icon: ICONS.users,
       color: "var(--ink-2)"
     })}
@@ -582,17 +584,13 @@ function dashboardHTML(data) {
     ${listCard({ key: "zeroSearches", title: "搜索无结果", sub: "这些关键词没有匹配到片库，值得补片或加别名。", mono: "GAPS", listClass: "rank-list", entries: data.zeroSearches || [], row: zeroRow, empty: `<span class="check">✓</span>所有搜索都找到了结果。` })}
   </div>
 
-  <div class="board-grid one">
-    ${listCard({ key: "topTitles", title: "热门作品", sub: "详情页浏览最多的作品，以及被带往平台的次数。", mono: "TITLES", listClass: "rank-list", entries: data.topTitles || [], row: titleRow, empty: "还没有作品浏览数据。" })}
-  </div>
-
   <div class="board-grid">
     ${listCard({ key: "topGeo", title: "访问地区", sub: "Cloudflare 边缘 GeoIP 解析出的国家与城市，只算打过页面信标的访客。", mono: "GEO", listClass: "bar-list", entries: geo, row: geoRow, empty: "还没有地区数据。", extra: suspectGeoNote })}
-    ${listCard({ key: "topIps", title: "访问来源", sub: "访客的真实 IP，按最近访问时间排序；压暗的行是没执行页面脚本或来自机房、代理网段的来源。", mono: "SOURCE IP", listClass: "ip-list", entries: data.topIps || [], row: ipRow, empty: "还没有来源 IP 数据。" })}
+    ${listCard({ key: "topIps", title: "访问来源", sub: "访客的真实 IP，按最近访问时间排序；压暗的行是没执行页面脚本的来源。", mono: "SOURCE IP", listClass: "ip-list", entries: topIps, row: ipRow, empty: "还没有来源 IP 数据。" })}
   </div>
 
   <div class="board-grid">
-    ${listCard({ key: "visitors", title: "访客活跃度", sub: "真实访客在前；机房来源与未执行页面脚本的编号排在后面。", mono: "VISITORS", listClass: "visitor-list", entries: data.visitors || [], row: visitorRow, empty: "还没有访客行为。", extra: `<div class="privacy-note">${ICONS.shield}<span>访客编号来自随机 Cookie，只用于去重；事件另带来源 IP、GeoIP 解析出的国家与城市，以及 Cloudflare 边缘给出的 ASN 与网络组织，用来认出反复打点的采集脚本和机房来源。这些只在这个本地后台可见，前台公开接口不返回，也不接第三方统计。只有打过页面信标、且不是机房或代理网段的编号才计入「真实访客」；其余落在「未执行页面脚本」或「机房来源」里。</span></div>` })}
+    ${listCard({ key: "visitors", title: "访客活跃度", sub: "真实访客在前；未执行页面脚本的编号排在后面。", mono: "VISITORS", listClass: "visitor-list", entries: visitors, row: visitorRow, empty: "还没有访客行为。", extra: `<div class="privacy-note">${ICONS.shield}<span>访客编号来自随机 Cookie，只用于去重；事件另带来源 IP 与 GeoIP 解析出的国家、城市，用来认出反复打点的采集脚本。这些只在这个本地后台可见，前台公开接口不返回，也不接第三方统计。只有打过页面信标的编号才计入「真实访客」；其余落在「未执行页面脚本」里。</span></div>` })}
     ${listCard({ key: "recent", title: "最近动态", sub: "最新的搜索、浏览与跳转。", mono: "LIVE", listClass: "activity", entries: data.recent || [], row: activityRow, empty: "还没有行为记录。" })}
   </div>`;
 }
